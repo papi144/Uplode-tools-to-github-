@@ -232,25 +232,48 @@ upload_file() {
             --ref "$branch" 2>/dev/null)
     fi
 
-    # Upload/update file
-    echo -e "${BLUE}Encoding file (this may take a while for large files)...${NC}"
-    local content
-    content=$(base64 -w 0 "$file_path")
+    # Create temp file for JSON payload
+    local tmpjson
+    tmpjson=$(mktemp)
+    trap "rm -f $tmpjson" EXIT
 
-    echo -e "${BLUE}Pushing to GitHub...${NC}"
-    local payload
-    payload=$(printf '{"message":"%s","content":"%s","sha":"%s","branch":"%s"}' \
-        "$message" "$content" "$sha" "$branch")
+    echo -e "${BLUE}Encoding file...${NC}"
+    
+    # Build JSON with base64 content
+    # Use a Python script to handle large base64 strings properly
+    python3 -c "
+import json, sys, base64
+
+with open('$file_path', 'rb') as f:
+    content = base64.b64encode(f.read()).decode()
+
+data = {
+    'message': '$message',
+    'content': content,
+    'sha': '$sha',
+    'branch': '$branch'
+}
+
+with open('$tmpjson', 'w') as f:
+    json.dump(data, f)
+" 2>/dev/null || {
+        # Fallback to bash if python not available
+        local content
+        content=$(base64 -w 0 "$file_path")
+        echo "{\"message\":\"$message\",\"content\":\"$content\",\"sha\":\"$sha\",\"branch\":\"$branch\"}" > "$tmpjson"
+    }
+
+    echo -e "${BLUE}Pushing to GitHub (may take a moment)...${NC}"
 
     if gh api "repos/$repo/contents/$filename" \
         --method PUT \
-        --body "$payload" \
+        --body-file "$tmpjson" \
         --headers "Accept: application/vnd.github+json" \
-        --jq '.content.name // .message // empty'; then
+        --jq '.content.name // .message // empty' 2>&1; then
         echo -e "  ${GREEN}✓ $filename${NC}"
         return 0
     else
-        echo -e "  ${RED}✗ $filename (check file size < 100MB)${NC}" >&2
+        echo -e "  ${RED}✗ $filename failed${NC}" >&2
         return 1
     fi
 }
