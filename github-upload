@@ -309,6 +309,7 @@ echo -e "${BLUE}Uploading to $REPO ($BRANCH)${NC}"
 success=0
 failed=0
 for f in "${FILES[@]}"; do
+    echo "Processing: $f"
     if [ -f "$f" ]; then
         if upload_file "$REPO" "$BRANCH" "$f" "$COMMIT_MSG"; then
             ((success++))
