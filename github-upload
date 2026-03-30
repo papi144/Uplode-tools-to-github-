@@ -32,8 +32,6 @@ set -euo pipefail
 # Configuration
 CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/github-upload"
 CONFIG_FILE="$CONFIG_DIR/config"
-STATE_DIR="${XDG_CACHE_HOME:-$HOME/.cache}/github-upload"
-STATE_FILE="$STATE_DIR/state"
 
 # Colors
 RED='\033[0;31m'
@@ -50,7 +48,6 @@ CREATE_REPO=false
 REPO_DESCRIPTION=""
 VISIBILITY="--public"
 FILES=()
-INTERACTIVE=false
 HELP=false
 
 # Parse arguments
@@ -167,68 +164,97 @@ normalize_repo() {
     echo "$r"
 }
 
-# Check/create repository
-ensure_repository() {
+# Check if repository exists
+repo_exists() {
     local repo="$1"
-    local create="$2"
-    local desc="$3"
-    local vis="$4"
-
     if gh repo view "$repo" &>/dev/null; then
-        echo -e "${GREEN}✓ Repository exists: $repo${NC}"
         return 0
     fi
-
-    if $create; then
-        echo -e "${YELLOW}Creating repository: $repo${NC}"
-        gh repo create "$repo" \
-            --description "${desc:-Uploaded via github-upload}" \
-            $vis \
-            --source "$tmpdir" \
-            --remote "$repo" \
-            --push >/dev/null
-        echo -e "${GREEN}✓ Repository created${NC}"
-        return 0
-    fi
-
-    echo -e "${RED}Error: Repository '$repo' not found.${NC}" >&2
-    echo "Use -c/--create to create it automatically." >&2
-    exit 1
+    return 1
 }
 
-# Gather file list if not provided
-gather_files() {
-    if [ ${#FILES[@]} -gt 0 ]; then
-        # Validate files exist
-        local missing=0
-        for f in "${FILES[@]}"; do
-            if [ ! -e "$f" ]; then
-                echo -e "${YELLOW}Warning: '$f' not found, skipping${NC}" >&2
-                missing=1
-            fi
-        done
-        if [ $missing -eq 1 ] && [ ${#FILES[@]} -eq 1 ]; then
-            exit 1
-        fi
+# Create repository
+create_repository() {
+    local repo="$1"
+    local desc="$2"
+    local vis="$3"
+
+    echo -e "${YELLOW}Creating repository: $repo${NC}"
+    if gh repo create "$repo" \
+        --description "${desc:-Uploaded via github-upload}" \
+        $vis \
+        --source . \
+        --private \
+        --push >/dev/null 2>&1; then
+        echo -e "${GREEN}✓ Repository created${NC}"
         return 0
+    else
+        echo -e "${RED}Error: Failed to create repository${NC}" >&2
+        return 1
+    fi
+}
+
+# Get default branch of repository
+get_default_branch() {
+    local repo="$1"
+    gh repo view "$repo" --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null || echo "main"
+}
+
+# Upload a single file using GitHub API
+upload_file() {
+    local repo="$1"
+    local branch="$2"
+    local file_path="$3"
+    local message="$4"
+
+    local filename
+    filename=$(basename "$file_path")
+
+    # Skip if file doesn't exist
+    if [ ! -f "$file_path" ]; then
+        echo -e "${YELLOW}Warning: '$file_path' not found, skipping${NC}" >&2
+        return 1
     fi
 
-    # Interactive mode
-    echo "Enter file paths (one per line, empty line to finish):"
-    while IFS= read -r line; do
-        [ -z "$line" ] && break
-        FILES+=("$line")
-    done
+    echo -e "${BLUE}Uploading: $filename${NC}"
 
-    if [ ${#FILES[@]} -eq 0 ]; then
-        echo -e "${RED}Error: No files specified.${NC}" >&2
-        exit 1
+    # Get file content as base64
+    local content
+    content=$(base64 -w 0 "$file_path")
+
+    # Check if file exists on repo to get its SHA
+    local sha=""
+    if gh api "repos/$repo/contents/$filename" \
+        --jq '.sha // empty' \
+        --headers "Accept: application/vnd.github+json" \
+        --ref "$branch" &>/dev/null; then
+        sha=$(gh api "repos/$repo/contents/$filename" \
+            --jq '.sha' \
+            --headers "Accept: application/vnd.github+json" \
+            --ref "$branch" 2>/dev/null)
+    fi
+
+    # Upload/update file
+    local payload
+    payload=$(printf '{"message":"%s","content":"%s","sha":"%s","branch":"%s"}' \
+        "$message" "$content" "$sha" "$branch")
+
+    if gh api "repos/$repo/contents/$filename" \
+        --method PUT \
+        --body "$payload" \
+        --headers "Accept: application/vnd.github+json" &>/dev/null; then
+        echo -e "  ${GREEN}✓ $filename${NC}"
+        return 0
+    else
+        echo -e "  ${RED}✗ $filename${NC}" >&2
+        return 1
     fi
 }
 
 # Main
 if $HELP; then exit 0; fi
 
+# Interactive mode for repo
 if [ -z "$REPO" ]; then
     echo -e "${BLUE}Repository${NC}"
     read -rp "Repository name (e.g., my-repo or user/repo): " REPO_INPUT
@@ -241,56 +267,60 @@ fi
 
 REPO="$(normalize_repo "$REPO")"
 
-gather_files
-
-# Filter only existing files
-VALID_FILES=()
-for f in "${FILES[@]}"; do
-    if [ -e "$f" ]; then
-        VALID_FILES+=("$f")
+# Check if repo exists, create if needed
+if ! repo_exists "$REPO"; then
+    if $CREATE_REPO; then
+        create_repository "$REPO" "$REPO_DESCRIPTION" "$VISIBILITY"
     else
-        echo -e "${YELLOW}Warning: '$f' does not exist, skipping${NC}" >&2
+        echo -e "${RED}Error: Repository '$REPO' not found.${NC}" >&2
+        echo "Use -c/--create to create it automatically." >&2
+        exit 1
     fi
-done
+else
+    echo -e "${GREEN}✓ Repository exists: $REPO${NC}"
+fi
 
-if [ ${#VALID_FILES[@]} -eq 0 ]; then
-    echo -e "${RED}Error: No valid files to upload.${NC}" >&2
+# Get actual branch (use provided or repo default)
+if [ "$BRANCH" = "${GITHUB_DEFAULT_BRANCH:-main}" ]; then
+    BRANCH=$(get_default_branch "$REPO")
+fi
+
+# Interactive mode for files
+if [ ${#FILES[@]} -eq 0 ]; then
+    echo "Enter file paths (one per line, empty line to finish):"
+    while IFS= read -r line; do
+        [ -z "$line" ] && break
+        FILES+=("$line")
+    done
+fi
+
+if [ ${#FILES[@]} -eq 0 ]; then
+    echo -e "${RED}Error: No files specified.${NC}" >&2
     exit 1
 fi
 
-# Temporary workspace
-tmpdir="$(mktemp -d)"
-trap 'rm -rf "$tmpdir"' EXIT
-
-# Prepare repository
-ensure_repository "$REPO" "$CREATE_REPO" "$REPO_DESCRIPTION" "$VISIBILITY"
-
-# Clone
-echo -e "${BLUE}Cloning repository...${NC}"
-if ! gh repo clone "$REPO" "$tmpdir" -- --branch "$BRANCH" 2>/dev/null; then
-    # Try default branch
-    gh repo clone "$REPO" "$tmpdir"
-fi
-
-# Copy files
-echo -e "${BLUE}Copying files...${NC}"
-for f in "${VALID_FILES[@]}"; do
-    cp -r "$f" "$tmpdir/"
-    echo "  + $(basename "$f")"
+# Upload files
+echo -e "${BLUE}Uploading to $REPO ($BRANCH)${NC}"
+success=0
+failed=0
+for f in "${FILES[@]}"; do
+    if [ -f "$f" ]; then
+        if upload_file "$REPO" "$BRANCH" "$f" "$COMMIT_MSG"; then
+            ((success++))
+        else
+            ((failed++))
+        fi
+    else
+        echo -e "${YELLOW}Warning: '$f' not found, skipping${NC}" >&2
+        ((failed++))
+    fi
 done
 
-# Commit and push
-(
-    cd "$tmpdir"
-    git add --all
-    if ! git diff --cached --quiet; then
-        echo -e "${BLUE}Committing and pushing...${NC}"
-        git commit -m "$COMMIT_MSG"
-        git push origin "$BRANCH"
-    else
-        echo -e "${YELLOW}No changes to commit (files unchanged).${NC}"
-    fi
-)
-
-echo -e "${GREEN}✓ Upload complete${NC}"
+echo ""
+if [ $success -gt 0 ]; then
+    echo -e "${GREEN}✓ Upload complete: $success file(s)${NC}"
+fi
+if [ $failed -gt 0 ]; then
+    echo -e "${RED}✗ Failed: $failed file(s)${NC}"
+fi
 echo "View at: https://github.com/$REPO"
