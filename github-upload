@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 ################################################################################
 # GitHub File Upload Tool
-# Upload any files to a GitHub repository from Termux/Unix using gh CLI.
+# Upload any files to a GitHub repository from Termux/Unix using git.
 # Supports: txt, pdf, apk, images, archives, any file type.
 #
 # Usage:
@@ -164,146 +164,75 @@ normalize_repo() {
     echo "$r"
 }
 
-# Check if repository exists
-repo_exists() {
-    local repo="$1"
-    if gh repo view "$repo" &>/dev/null; then
-        return 0
-    fi
-    return 1
-}
-
-# Create repository
-create_repository() {
-    local repo="$1"
-    local desc="$2"
-    local vis="$3"
-
-    echo -e "${YELLOW}Creating repository: $repo${NC}"
-    if gh repo create "$repo" \
-        --description "${desc:-Uploaded via github-upload}" \
-        $vis \
-        --source . \
-        --private \
-        --push >/dev/null 2>&1; then
-        echo -e "${GREEN}✓ Repository created${NC}"
-        return 0
-    else
-        echo -e "${RED}Error: Failed to create repository${NC}" >&2
-        return 1
-    fi
-}
-
 # Get default branch of repository
 get_default_branch() {
     local repo="$1"
     gh repo view "$repo" --json defaultBranchRef --jq '.defaultBranchRef.name' 2>/dev/null || echo "main"
 }
 
-# Upload a single file using GitHub API
-upload_file() {
+# Upload files using git push
+upload_files() {
     local repo="$1"
     local branch="$2"
-    local file_path="$3"
-    local message="$4"
-
-    local filename
-    filename=$(basename "$file_path")
-
-    # Skip if file doesn't exist
-    if [ ! -f "$file_path" ]; then
-        echo -e "${YELLOW}Warning: '$file_path' not found, skipping${NC}" >&2
+    
+    echo -e "${BLUE}Cloning repository...${NC}"
+    
+    # Create temp directory
+    local tmpdir
+    tmpdir=$(mktemp -d)
+    trap "rm -rf '$tmpdir'" EXIT
+    
+    # Clone the repository
+    if ! git clone "https://$GITHUB_USERNAME:$GITHUB_TOKEN@github.com/$repo.git" "$tmpdir" --branch "$branch" --single-branch 2>/dev/null; then
+        # Try without branch (default branch)
+        if ! git clone "https://$GITHUB_USERNAME:$GITHUB_TOKEN@github.com/$repo.git" "$tmpdir" --single-branch 2>/dev/null; then
+            echo -e "${RED}Error: Failed to clone repository${NC}" >&2
+            return 1
+        fi
+        # Get actual branch
+        branch=$(get_default_branch "$repo")
+    fi
+    
+    echo -e "${GREEN}Repository cloned to temp directory${NC}"
+    
+    # Copy files
+    echo -e "${BLUE}Copying files...${NC}"
+    local success=0
+    local failed=0
+    for f in "${FILES[@]}"; do
+        if [ -f "$f" ]; then
+            cp "$f" "$tmpdir/"
+            echo "  + $(basename "$f")"
+            ((success++))
+        else
+            echo -e "${YELLOW}Warning: '$f' not found, skipping${NC}" >&2
+            ((failed++))
+        fi
+    done
+    
+    if [ $success -eq 0 ]; then
+        echo -e "${RED}Error: No files to upload${NC}" >&2
         return 1
     fi
-
-    local file_size
-    file_size=$(stat -c%s "$file_path" 2>/dev/null || stat -f%z "$file_path" 2>/dev/null)
-    echo -e "${BLUE}Uploading: $filename (${file_size} bytes)${NC}"
-
-    # Check if file exists on repo to get its SHA
-    local sha=""
-    if gh api "repos/$repo/contents/$filename" \
-        --jq '.sha // empty' \
-        --headers "Accept: application/vnd.github+json" \
-        --ref "$branch" &>/dev/null; then
-        sha=$(gh api "repos/$repo/contents/$filename" \
-            --jq '.sha' \
-            --headers "Accept: application/vnd.github+json" \
-            --ref "$branch" 2>/dev/null)
+    
+    # Commit and push
+    cd "$tmpdir"
+    git add -A
+    
+    if git diff --cached --quiet; then
+        echo -e "${YELLOW}No changes to commit${NC}"
+        return 0
     fi
-
-    # Encode file and upload via stdin pipe (avoids argument limit)
-    echo -e "${BLUE}Encoding and uploading...${NC}"
     
-    # Create a temp file descriptor for JSON
-    local tmpjson
-    tmpjson=$(mktemp)
+    echo -e "${BLUE}Committing...${NC}"
+    git commit -m "$COMMIT_MSG"
     
-    # Write JSON to temp file (Python handles large base64 better)
-    python3 -c "
-import json, base64
-
-with open('$file_path', 'rb') as f:
-    content = base64.b64encode(f.read()).decode()
-
-data = {
-    'message': '$message',
-    'content': content,
-    'sha': '$sha',
-    'branch': '$branch'
-}
-
-with open('$tmpjson', 'w') as f:
-    json.dump(data, f)
-" 2>/dev/null || {
-        # Fallback if Python not available
-        local content
-        content=$(base64 -w 0 "$file_path")
-        echo "{\"message\":\"$message\",\"content\":\"$content\",\"sha\":\"$sha\",\"branch\":\"$branch\"}" > "$tmpjson"
-    }
-    
-    # Upload using stdin pipe (avoids argument limit)
-    echo -e "${BLUE}Encoding and uploading...${NC}"
-    
-    # Create a temp file for JSON
-    local tmpjson
-    tmpjson=$(mktemp)
-    
-    # Write JSON to temp file (Python handles large base64 better)
-    python3 -c "
-import json, base64
-
-with open('$file_path', 'rb') as f:
-    content = base64.b64encode(f.read()).decode()
-
-data = {
-    'message': '$message',
-    'content': content,
-    'sha': '$sha',
-    'branch': '$branch'
-}
-
-with open('$tmpjson', 'w') as f:
-    json.dump(data, f)
-" 2>/dev/null || {
-        # Fallback if Python not available
-        local content
-        content=$(base64 -w 0 "$file_path")
-        echo "{\"message\":\"$message\",\"content\":\"$content\",\"sha\":\"$sha\",\"branch\":\"$branch\"}" > "$tmpjson"
-    }
-    
-    # Upload using --input flag (reads from stdin or file)
-    if cat "$tmpjson" | gh api "repos/$repo/contents/$filename" \
-        --method PUT \
-        --input - \
-        --headers "Accept: application/vnd.github+json" \
-        --jq '.content.name // .message // empty' 2>&1; then
-        rm -f "$tmpjson"
-        echo -e "  ${GREEN}✓ $filename${NC}"
+    echo -e "${BLUE}Pushing to GitHub...${NC}"
+    if git push origin "$branch"; then
+        echo -e "${GREEN}✓ Upload complete!${NC}"
         return 0
     else
-        rm -f "$tmpjson"
-        echo -e "  ${RED}✗ $filename failed${NC}" >&2
+        echo -e "${RED}✗ Push failed${NC}" >&2
         return 1
     fi
 }
@@ -324,10 +253,16 @@ fi
 
 REPO="$(normalize_repo "$REPO")"
 
-# Check if repo exists, create if needed
-if ! repo_exists "$REPO"; then
+# Create repo if needed
+if ! gh repo view "$REPO" &>/dev/null; then
     if $CREATE_REPO; then
-        create_repository "$REPO" "$REPO_DESCRIPTION" "$VISIBILITY"
+        echo -e "${YELLOW}Creating repository: $REPO${NC}"
+        gh repo create "$REPO" \
+            --description "${REPO_DESCRIPTION:-Uploaded via github-upload}" \
+            $VISIBILITY \
+            --private \
+            --push >/dev/null 2>&1
+        echo -e "${GREEN}✓ Repository created${NC}"
     else
         echo -e "${RED}Error: Repository '$REPO' not found.${NC}" >&2
         echo "Use -c/--create to create it automatically." >&2
@@ -337,7 +272,7 @@ else
     echo -e "${GREEN}✓ Repository exists: $REPO${NC}"
 fi
 
-# Get actual branch (use provided or repo default)
+# Get actual branch
 if [ "$BRANCH" = "${GITHUB_DEFAULT_BRANCH:-main}" ]; then
     BRANCH=$(get_default_branch "$REPO")
 fi
@@ -359,27 +294,9 @@ fi
 
 # Upload files
 echo -e "${BLUE}Uploading to $REPO ($BRANCH)${NC}"
-success=0
-failed=0
-for f in "${FILES[@]}"; do
-    echo "Processing: $f"
-    if [ -f "$f" ]; then
-        if upload_file "$REPO" "$BRANCH" "$f" "$COMMIT_MSG"; then
-            ((success++))
-        else
-            ((failed++))
-        fi
-    else
-        echo -e "${YELLOW}Warning: '$f' not found, skipping${NC}" >&2
-        ((failed++))
-    fi
-done
-
-echo ""
-if [ $success -gt 0 ]; then
-    echo -e "${GREEN}✓ Upload complete: $success file(s)${NC}"
+if upload_files "$REPO" "$BRANCH"; then
+    echo "View at: https://github.com/$REPO"
+else
+    echo -e "${RED}Upload failed${NC}" >&2
+    exit 1
 fi
-if [ $failed -gt 0 ]; then
-    echo -e "${RED}✗ Failed: $failed file(s)${NC}"
-fi
-echo "View at: https://github.com/$REPO"
