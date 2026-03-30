@@ -288,15 +288,11 @@ fi
 # Interactive mode for files
 if [ ${#FILES[@]} -eq 0 ]; then
     echo "Enter file paths (one per line, empty line to finish):"
-    while true; do
-        IFS= read -r line
-        if [ -z "$line" ]; then
-            break
-        fi
+    while IFS= read -r -p "> " line; do
+        [ -z "$line" ] && break
         FILES+=("$line")
         echo "  Added: $line"
     done
-    echo "  Done adding files. Total: ${#FILES[@]}"
 fi
 
 if [ ${#FILES[@]} -eq 0 ]; then
