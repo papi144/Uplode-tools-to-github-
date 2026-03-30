@@ -216,11 +216,9 @@ upload_file() {
         return 1
     fi
 
-    echo -e "${BLUE}Uploading: $filename${NC}"
-
-    # Get file content as base64
-    local content
-    content=$(base64 -w 0 "$file_path")
+    local file_size
+    file_size=$(stat -c%s "$file_path" 2>/dev/null || stat -f%z "$file_path" 2>/dev/null)
+    echo -e "${BLUE}Uploading: $filename (${file_size} bytes)${NC}"
 
     # Check if file exists on repo to get its SHA
     local sha=""
@@ -235,6 +233,11 @@ upload_file() {
     fi
 
     # Upload/update file
+    echo -e "${BLUE}Encoding file...${NC}"
+    local content
+    content=$(base64 -w 0 "$file_path")
+
+    echo -e "${BLUE}Pushing to GitHub...${NC}"
     local payload
     payload=$(printf '{"message":"%s","content":"%s","sha":"%s","branch":"%s"}' \
         "$message" "$content" "$sha" "$branch")
@@ -242,11 +245,12 @@ upload_file() {
     if gh api "repos/$repo/contents/$filename" \
         --method PUT \
         --body "$payload" \
-        --headers "Accept: application/vnd.github+json" &>/dev/null; then
+        --headers "Accept: application/vnd.github+json" \
+        --jq '.content.name // .message // empty'; then
         echo -e "  ${GREEN}✓ $filename${NC}"
         return 0
     else
-        echo -e "  ${RED}✗ $filename${NC}" >&2
+        echo -e "  ${RED}✗ $filename (check file size < 100MB)${NC}" >&2
         return 1
     fi
 }
