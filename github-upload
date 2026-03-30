@@ -227,8 +227,12 @@ upload_files() {
     echo -e "${BLUE}Committing...${NC}"
     git commit -m "$COMMIT_MSG"
     
-    echo -e "${BLUE}Pushing to GitHub...${NC}"
-    if git push origin "$branch"; then
+    # Get current branch
+    local current_branch
+    current_branch=$(git rev-parse --abbrev-ref HEAD)
+    echo -e "${BLUE}Pushing to GitHub ($current_branch)...${NC}"
+    
+    if git push origin "$current_branch"; then
         echo -e "${GREEN}✓ Upload complete!${NC}"
         return 0
     else
