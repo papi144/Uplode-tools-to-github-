@@ -296,7 +296,7 @@ if [ ${#FILES[@]} -eq 0 ]; then
         [ -z "$line" ] && break
         FILES+=("$line")
         echo "  Added: $line"
-    done < /dev/tty
+    done
 fi
 
 if [ ${#FILES[@]} -eq 0 ]; then
