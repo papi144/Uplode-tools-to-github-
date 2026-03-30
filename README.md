@@ -52,10 +52,11 @@ sudo pacman -S github-cli
 ### Quick Install (Recommended)
 
 ```bash
-# Download the script
-curl -fsSL https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload -o github-upload
+# Clone the repository
+git clone https://github.com/papi144/Uplode-tools-to-github-.git
+cd Uplode-tools-to-github-
 
-# Make it executable
+# Make the script executable
 chmod +x github-upload
 
 # Move to your PATH (optional)
