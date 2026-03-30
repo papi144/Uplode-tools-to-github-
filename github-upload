@@ -262,10 +262,40 @@ with open('$tmpjson', 'w') as f:
         echo "{\"message\":\"$message\",\"content\":\"$content\",\"sha\":\"$sha\",\"branch\":\"$branch\"}" > "$tmpjson"
     }
     
-    # Upload using --body-file flag
-    if gh api "repos/$repo/contents/$filename" \
+    # Upload using stdin pipe (avoids argument limit)
+    echo -e "${BLUE}Encoding and uploading...${NC}"
+    
+    # Create a temp file for JSON
+    local tmpjson
+    tmpjson=$(mktemp)
+    
+    # Write JSON to temp file (Python handles large base64 better)
+    python3 -c "
+import json, base64
+
+with open('$file_path', 'rb') as f:
+    content = base64.b64encode(f.read()).decode()
+
+data = {
+    'message': '$message',
+    'content': content,
+    'sha': '$sha',
+    'branch': '$branch'
+}
+
+with open('$tmpjson', 'w') as f:
+    json.dump(data, f)
+" 2>/dev/null || {
+        # Fallback if Python not available
+        local content
+        content=$(base64 -w 0 "$file_path")
+        echo "{\"message\":\"$message\",\"content\":\"$content\",\"sha\":\"$sha\",\"branch\":\"$branch\"}" > "$tmpjson"
+    }
+    
+    # Upload using --input flag (reads from stdin or file)
+    if cat "$tmpjson" | gh api "repos/$repo/contents/$filename" \
         --method PUT \
-        --body-file "$tmpjson" \
+        --input - \
         --headers "Accept: application/vnd.github+json" \
         --jq '.content.name // .message // empty' 2>&1; then
         rm -f "$tmpjson"
