@@ -468,6 +468,23 @@ show_menu() {
 
 # -------------------------- Main --------------------------
 
+# Initialize all variables to safe defaults (prevents unbound variable errors with set -u)
+REPO=""
+COMMIT_MSG="Upload files via github-upload"
+BRANCH=""
+CREATE_REPO=false
+REPO_DESCRIPTION=""
+VISIBILITY="--public"
+FILES=()
+HELP=false
+ADD_ACCOUNT=false
+ADD_ACCOUNT_NAME=""
+SPECIFIED_ACCOUNT=""
+EXPORT=false
+IMPORT=false
+BACKUP_FILE=""
+LIST_ACCOUNTS=false
+
 # Parse arguments
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -571,7 +588,7 @@ fi
 # Check dependencies
 for cmd in git curl openssl; do
     if ! command -v "$cmd" >/dev/null; then
-        echo -e "${COLOR_ERROR}Error: Required command '$cmd' not found.${COLOR_RESET}" >&2
+        echo -e "${COLOR_ERROR}Error: Required command '$cmd' not installed.${COLOR_RESET}" >&2
         exit 1
     fi
 done
