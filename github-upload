@@ -1,22 +1,54 @@
 #!/usr/bin/env bash
 ################################################################################
-# GitHub File Upload Tool (Multi-Account with Menu)
+# GitHub File Upload Tool
 #
-# Features:
-# - First run: prompts for credentials (creates default account)
-# - Interactive menu: Upload files, Add account, List accounts, Quit
-# - Auto-detects which account has access to a repository
-# - If multiple accounts can access, you choose which to use
-# - If no account can access but -c flag, you pick account to create repo with
-# - Supports: creating repos, any branch, any file type
+# Upload files to GitHub repositories from the command line.
+# Supports multiple accounts, automatic account detection, and repository creation.
 #
 # Usage:
-#   ./github-upload              # Show menu
-#   ./github-upload -r user/repo file1 file2 ...  # Direct upload
-#   ./github-upload -A [name]    # Add account (interactive or named)
+#   github-upload [OPTIONS] [FILES...]
 #
-# Accounts stored in: ~/.config/github-upload/accounts/<name>/config
-# Default account: ~/.config/github-upload/config
+# Options:
+#   -r, --repo REPO        Repository name (format: user/repo or just repo)
+#   -m, --message MSG      Commit message (default: "Upload files via github-upload")
+#   -b, --branch BRANCH    Target branch (default: repository's default branch)
+#   -a, --account NAME     Use specific account (default: auto-detect)
+#   -A, --add-account [NAME] Add a new account (prompts for credentials)
+#   -c, --create           Create repository if it doesn't exist
+#   -d, --description DESC Repository description when creating
+#   --public               Make new repository public (default)
+#   --private              Make new repository private
+#   -h, --help             Show this help message
+#
+# Accounts:
+#   Credentials are stored in:
+#     ~/.config/github-upload/config              (default account)
+#     ~/.config/github-upload/accounts/<name>/config  (named accounts)
+#
+#   Environment variables (override config files):
+#     GITHUB_USERNAME, GITHUB_TOKEN               (default account)
+#     GITHUB_USERNAME_<NAME>, GITHUB_TOKEN_<NAME> (named account, uppercase)
+#
+# Examples:
+#   github-upload file.txt
+#   github-upload -r myuser/myrepo file1.pdf file2.apk
+#   github-upload -c -r new-repo *.zip
+#   github-upload -a work -r company/repo backup.tar.gz
+#   github-upload -A personal
+#   github-upload --help
+#
+# Interactive Mode:
+#   Run without arguments: github-upload
+#   Shows a menu to upload files, add accounts, or list accounts.
+#
+# Multi-Account Features:
+#   - Auto-detects which account has access to a repository
+#   - If multiple accounts can access, you choose which to use
+#   - If no account can access but using -c, you pick which account creates it
+#
+# Requirements:
+#   - git
+#   - curl
 ################################################################################
 
 set -euo pipefail
@@ -26,11 +58,13 @@ CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/github-upload"
 DEFAULT_CONFIG="$CONFIG_DIR/config"
 ACCOUNTS_DIR="$CONFIG_DIR/accounts"
 
-# Colors
+# Colors (modern palette)
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
+CYAN='\033[0;36m'
+BOLD='\033[1m'
 NC='\033[0m'
 
 # Parse arguments
@@ -64,11 +98,10 @@ while [[ $# -gt 0 ]]; do
 done
 
 if $HELP; then
-    grep '^#' "$0" | sed -n '2,30p' | cut -c4-
+    grep '^#' "$0" | sed -n '2,39p' | cut -c4-
     exit 0
 fi
 
-# If explicit add-account, handle and exit
 if $ADD_ACCOUNT; then
     add_account "$ADD_ACCOUNT_NAME"
     exit 0
@@ -76,7 +109,11 @@ fi
 
 # Check dependencies
 for cmd in git curl; do
-    command -v "$cmd" >/dev/null || { echo -e "${RED}Error: $cmd not installed.${NC}" >&2; exit 1; }
+    command -v "$cmd" >/dev/null || {
+        echo -e "${RED}Error: Required command '$cmd' not found.${NC}" >&2
+        echo "Install git and curl to use this tool." >&2
+        exit 1
+    }
 done
 
 # -------------------------- Functions --------------------------
@@ -93,9 +130,9 @@ add_account() {
         read -rp "Account '$name' exists. Overwrite? (y/N): " overwrite
         [[ "$overwrite" =~ ^[Yy]$ ]] || { echo "Aborted."; return; }
     fi
-    echo -e "${BLUE}Adding account: $name${NC}"
+    echo -e "${CYAN}Adding account: $name${NC}"
     read -rp "GitHub username: " user
-    read -rsp "GitHub Personal Access Token: " token
+    read -rsp "GitHub Personal Access Token (repo scope): " token
     echo
     mkdir -p "$config_dir"
     cat > "$config_file" <<EOF
@@ -108,10 +145,12 @@ EOF
 
 list_accounts() {
     echo "Configured accounts:"
+    local count=0
     if [ -f "$DEFAULT_CONFIG" ]; then
         local user
         user=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" | cut -d= -f2- || echo "unknown")
-        echo "  - default: $user"
+        echo -e "  ${CYAN}default${NC}: $user"
+        ((count++))
     fi
     if [ -d "$ACCOUNTS_DIR" ]; then
         for cfg in "$ACCOUNTS_DIR"/*/config; do
@@ -119,9 +158,11 @@ list_accounts() {
             local acc="$(basename "$(dirname "$cfg")")"
             local u
             u=$(grep '^GITHUB_USERNAME=' "$cfg" | cut -d= -f2- || echo "unknown")
-            echo "  - $acc: $u"
+            echo -e "  ${CYAN}$acc${NC}: $u"
+            ((count++))
         done
     fi
+    [ $count -eq 0 ] && echo "  (none configured)"
     echo
 }
 
@@ -175,7 +216,7 @@ create_repo() {
     local json
     if [ -n "$REPO_DESCRIPTION" ]; then
         local desc_esc
-        desc_esc=$(printf '%s' "$REPO_DESCRIPTION" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+        desc_esc=$(printf '%s' "$REPO_DESCRIPTION" | python3 -c 'import json,sys; print(json.dumps(sys.stdin.read()))' 2>/dev/null || printf '%s' "$REPO_DESCRIPTION" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
         json="{\"name\":\"$repo_name\",\"description\":\"$desc_esc\",\"private\":$is_private}"
     else
         json="{\"name\":\"$repo_name\",\"private\":$is_private}"
@@ -247,7 +288,7 @@ upload_files() {
     echo -e "${BLUE}Pushing...${NC}"
     if git push origin HEAD; then
         echo -e "${GREEN}✓ Upload complete!${NC}"
-        echo "View at: https://github.com/$repo"
+        echo -e "View at: ${BOLD}https://github.com/$repo${NC}"
         return 0
     else
         echo -e "${RED}✗ Push failed${NC}" >&2
@@ -314,7 +355,7 @@ resolve_account() {
             if [ ${#accounts[@]} -eq 1 ]; then
                 chosen="${accounts[0]}"
             else
-                echo "No account has access to '$repo_input' (repo doesn't exist)."
+                echo -e "${YELLOW}No account has access to '$repo_input' (repo doesn't exist).${NC}"
                 echo "Select an account to create the repository:"
                 for i in "${!accounts[@]}"; do
                     printf "  %d. %s\n" $((i+1)) "${accounts[$i]}"
@@ -334,7 +375,7 @@ resolve_account() {
             exit 1
         fi
     else
-        echo "Multiple accounts have access to this repository:"
+        echo -e "${CYAN}Multiple accounts have access to this repository:${NC}"
         for i in "${!accessible[@]}"; do
             printf "  %d. %s\n" $((i+1)) "${accessible[$i]}"
         done
@@ -399,7 +440,7 @@ run_upload() {
 show_menu() {
     while true; do
         echo
-        echo "=== GitHub Upload Tool ==="
+        echo -e "${BOLD}=== GitHub Upload Tool ===${NC}"
         echo "1) Upload files"
         echo "2) Add another account"
         echo "3) List accounts"
@@ -417,12 +458,11 @@ show_menu() {
 
 # -------------------------- Main --------------------------
 
-# If -r (REPO) is provided, run upload directly (direct mode).
-# Otherwise, show the interactive menu.
+# If -r flag provided, run upload directly; otherwise show menu
 if [ -n "$REPO" ]; then
     run_upload
 else
-    # Check if any account exists, if not prompt to add one first
+    # Check if any account exists; if none, add default first
     if [ ! -f "$DEFAULT_CONFIG" ] && [ ! -d "$ACCOUNTS_DIR" ]; then
         echo -e "${YELLOW}No accounts configured.${NC}"
         add_account "default"

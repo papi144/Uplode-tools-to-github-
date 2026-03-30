@@ -1,79 +1,48 @@
-# GitHub File Upload Tool
+# GitHub Upload Tool
 
-A simple, powerful bash script to upload any file to a GitHub repository from the terminal. No git commands needed — just point, upload, done.
+> Simple, powerful file upload to GitHub from any terminal.
 
-Supports **Termux**, **Linux**, **macOS**, and **Windows (WSL/Git Bash)**.
+A modern bash script that makes uploading files to GitHub repositories effortless. Supports multiple accounts, smart repository detection, and both interactive menu and command-line modes.
 
----
-
-## Features
-
-- 📤 Upload any file type — txt, pdf, apk, images, archives, binaries, etc.
-- 🏗️ Create new repositories on the fly
-- 🎯 Works with any GitHub repository (public or private)
-- 💾 Saves credentials securely for reuse
-- 🔄 Interactive or fully scripted (all flags)
-- 🌐 Works on Termux, Linux, macOS, and Windows (WSL/Git Bash)
+- ✅ Works on Termux, Linux, macOS, WSL
+- ✅ Multiple GitHub accounts with auto-detection
+- ✅ Create repos on the fly
+- ✅ No git commands needed — just run and upload
 
 ---
 
-## Requirements
+## ✨ Features
 
-- `git`
-- `gh` (GitHub CLI)
-- Internet connection
-
-### Install GitHub CLI
-
-**Termux:**
-```bash
-pkg install gh
-```
-
-**Ubuntu/Debian:**
-```bash
-sudo apt install gh
-```
-
-**macOS:**
-```bash
-brew install gh
-```
-
-**Arch Linux:**
-```bash
-sudo pacman -S github-cli
-```
+- **Multi-Account Support** — Configure multiple GitHub accounts. The tool auto-detects which account has access to a repository and lets you choose when multiple accounts can access it.
+- **Smart Repo Creation** — When a repository doesn't exist, pick which account should create it.
+- **Interactive Menu** — User-friendly menu for beginners.
+- **Fully Scriptable** — All flags supported for automation.
+- **Secure** — Credentials stored with `600` permissions, never logged.
+- **Any File Type** — Upload APKs, PDFs, images, archives, anything.
 
 ---
 
-## Installation
-
-### Quick Install (Recommended)
+## 📦 Installation
 
 ```bash
 # Clone the repository
 git clone https://github.com/papi144/Uplode-tools-to-github-.git
 cd Uplode-tools-to-github-
 
-# Make the script executable
+# Make executable
 chmod +x github-upload
 
-# Move to your PATH (optional)
+# Optional: install to PATH
 sudo mv github-upload /usr/local/bin/
 ```
 
-### Manual Install
-
-1. Clone or download this repository
-2. Copy `github-upload` to a folder in your PATH (e.g., `/usr/local/bin/`)
-3. Make it executable: `chmod +x github-upload`
+**Requirements:** `git`, `curl`. No need for `gh` CLI anymore.
 
 ---
 
-## Authentication
+## 🔐 Authentication
 
-On first run, the script will prompt for your GitHub credentials:
+First run will prompt for your GitHub credentials:
 
 ```bash
 ./github-upload
@@ -81,154 +50,148 @@ On first run, the script will prompt for your GitHub credentials:
 
 ```
 GitHub username: your_username
-GitHub Personal Access Token (ghp_...): ghp_your_token_here
+GitHub Personal Access Token: ghp_xxxxxxxxxxxx
 ```
 
-Your token is saved securely in `~/.config/github-upload/config` (permissions 600).
+Credentials are saved to:
+- Default account: `~/.config/github-upload/config`
+- Additional accounts: `~/.config/github-upload/accounts/<name>/config`
 
-### Creating a GitHub Token
+### Create a Token
 
-1. Go to [GitHub Settings → Personal Access Tokens](https://github.com/settings/tokens)
-2. Click **Generate new token (classic)**
-3. Give it the **`repo`** scope
+1. Go to **GitHub Settings → Personal Access Tokens → Tokens (classic)**
+2. **Generate new token**
+3. Select **`repo`** scope (full control of private repositories)
 4. Copy the token (starts with `ghp_`)
 
 ---
 
-## Usage
+## 🚀 Usage
 
-### Interactive Mode
+### Interactive Mode (Menu)
 
 ```bash
 ./github-upload
 ```
 
-The script will guide you step by step.
+Shows a menu:
+1. **Upload files** — Select repository and files interactively
+2. **Add another account** — Add more GitHub accounts
+3. **List accounts** — See configured accounts
+4. **Quit**
 
-### Command Line Mode
+### Direct Mode (Command Line)
 
 ```bash
-# Upload a single file
+# Basic upload
 ./github-upload -r user/repo file.txt
 
 # Upload multiple files
-./github-upload -r user/repo file1.pdf image.png backup.zip
+./github-upload -r user/repo file1.pdf file2.png backup.zip
 
-# Upload with custom commit message
-./github-upload -r user/repo -m "Updated logs" logs.txt
+# Custom commit message
+./github-upload -r user/repo -m "Update documentation" README.md
 
-# Upload to a specific branch
+# Use a specific branch
 ./github-upload -r user/repo -b develop app.apk
 
-# Create a new repository and upload files
-./github-upload -r my-new-repo -c -d "My project files" *.apk
+# Create a new repository and upload
+./github-upload -c -r new-repo-name *.apk
 
 # Create a private repository
-./github-upload -r private-repo -c --private data.csv
+./github-upload -c -r private-repo --private secrets.json
+
+# Force a specific account
+./github-upload -a work -r company/project file.zip
+
+# Add a new account (non-interactive if name provided)
+./github-upload -A personal
 ```
 
 ---
 
-## Options
+## 🔧 Options
 
-| Option | Short | Description |
-|--------|-------|-------------|
-| `--repo` | `-r` | Repository name (`user/repo` or just `repo`) |
-| `--message` | `-m` | Commit message |
-| `--branch` | `-b` | Target branch (default: main) |
-| `--create` | `-c` | Create repository if it doesn't exist |
-| `--description` | `-d` | Repository description (used with `--create`) |
-| `--public` | | Make new repo public (default) |
-| `--private` | | Make new repo private |
-| `--help` | `-h` | Show help message |
+| Option | Description |
+|--------|-------------|
+| `-r, --repo REPO` | Repository (`user/repo` or just `repo`) |
+| `-m, --message MSG` | Commit message (default: "Upload files via github-upload") |
+| `-b, --branch BRANCH` | Target branch (default: repository's default) |
+| `-a, --account NAME` | Use specific account (default: auto-detect) |
+| `-A, --add-account [NAME]` | Add a new account (prompts if no name) |
+| `-c, --create` | Create repository if missing |
+| `-d, --description DESC` | Repository description (with `-c`) |
+| `--public` | Make new repo public (default) |
+| `--private` | Make new repo private |
+| `-h, --help` | Show help |
 
 ---
 
-## Examples
+## 🤔 How Multi-Account Works
 
-### Basic Upload
+1. **Add accounts** once: `./github-upload -A personal`, `./github-upload -A work`
+2. **Upload**: `./github-upload -r some/repo file.txt`
+   - Script checks all configured accounts for access
+   - If **one** account has access → uses it
+   - If **multiple** accounts have access → you choose which to use
+   - If **none** have access and `-c` used → you choose which account creates it
+3. **Credentials are reused** — no re-entering tokens
 
+---
+
+## 📝 Examples
+
+### Upload a backup archive
 ```bash
-./github-upload -r myname/myrepo document.pdf
+./github-upload -r myuser/backups -c -d "Daily backup" backup_$(date +%Y%m%d).tar.gz
 ```
 
-### Batch Upload
-
+### Multiple accounts scenario
 ```bash
-./github-upload -r myname/myrepo file1.txt file2.txt images/*
-```
+./github-upload -A personal    # Enter personal account tokens
+./github-upload -A work        # Enter work account tokens
 
-### Upload with Auto-Repo Creation
+# Upload to personal repo (auto-detected)
+./github-upload -r personaluser/personal-repo photo.jpg
 
-```bash
-./github-upload -r my-new-project -c "My backup" backup.tar.gz
-```
+# Upload to work repo (auto-detected) or choose if both have access
+./github-upload -r company/work-repo report.pdf
 
-### Update a Specific Branch
-
-```bash
-./github-upload -r myname/myrepo -b dev -m "Update dev build" app-debug.apk
-```
-
-### Private Repository
-
-```bash
-./github-upload -r myname/private-repo -c --private secrets.txt
-```
-
-### View Repository After Upload
-
-```bash
-./github-upload -r myname/myrepo image.png
-# Opens: https://github.com/myname/myrepo
+# Force using work account
+./github-upload -a work -r company/work-repo report.pdf
 ```
 
 ---
 
-## Config Files
+## 🛠️ Configuration Files
 
-Credentials are stored at:
-```
-~/.config/github-upload/config
-```
-
-State files (if any) are at:
-```
-~/.cache/github-upload/state
-```
+- Default account: `~/.config/github-upload/config`
+- Named accounts: `~/.config/github-upload/accounts/<name>/config`
+- Environment overrides: `GITHUB_USERNAME`, `GITHUB_TOKEN`, or `GITHUB_USERNAME_<NAME>`, `GITHUB_TOKEN_<NAME>`
 
 ---
 
-## Troubleshooting
+## ❓ Troubleshooting
 
-### "gh: command not found"
+**"Repository not found"**
+- Use `-c` to create it: `./github-upload -c -r new-repo file.txt`
+- Or check you have access with the selected account
 
-Install GitHub CLI first — see [Requirements](#requirements).
+**"Permission denied"**
+- Token may be expired or lack `repo` scope. Generate a new token.
 
-### "Repository not found"
+**"No accounts configured"**
+- Run `./github-upload -A` to add an account
 
-Use `-c` flag to create the repository automatically:
-```bash
-./github-upload -r new-repo -c file.txt
-```
-
-### Authentication failed
-
-Make sure your token has the **`repo`** scope. Check your tokens at:
-https://github.com/settings/tokens
-
-### Permission denied
-
-Your token may be expired or lack permissions. Generate a new token with `repo` scope.
+**Branch not found**
+- The script will create the specified branch automatically
 
 ---
 
-## License
+## 📄 License
 
-This project is open source and available under the [MIT License](LICENSE).
+MIT © 2026
 
 ---
 
-## Contributing
-
-Contributions welcome! Feel free to submit issues and pull requests.
+**Enjoy uploading!** 🚀
