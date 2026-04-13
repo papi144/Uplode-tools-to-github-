@@ -157,6 +157,8 @@ github-upload -r my-repo -m "Updated" myfile.apk
 | `--list-accounts` | List all saved accounts |
 | `--list [PATH]` | List files in repository |
 | `--list-repos` | List your repositories |
+| `--list-branches` | List branches in repository |
+| `-b, --branch NAME` | Create new branch |
 | `--delete PATH` | Delete a file from repository |
 | `-q, --quiet` | Quiet mode (minimal output) |
 | `-n, --dry-run` | Show what would be uploaded |
@@ -229,8 +231,24 @@ github-upload -r my-repo --delete temp2.tmp
 ### List Your Repositories
 
 ```bash
-# List all your GitHub repositories
 github-upload --list-repos
+```
+
+### List Branches
+
+```bash
+# List branches in a repository
+github-upload -r my-repo --list-branches
+```
+
+### Create Branch
+
+```bash
+# Create new branch from main
+github-upload -r my-repo -b feature-branch
+
+# Create branch from specific branch
+github-upload -r my-repo -b dev-branch --source-branch develop
 ```
 
 ## 🔍 Troubleshooting
