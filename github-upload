@@ -44,6 +44,44 @@ log() {
     esac
 }
 
+jq_safe() {
+    local json="$1"
+    local query="$2"
+    if command -v jq > /dev/null 2>&1; then
+        echo "$json" | jq -r "$query"
+    else
+        if [[ "$query" == ".sha" ]]; then
+            echo "$json" | grep -o '"sha":"[^"]*"' | head -1 | cut -d'"' -f4
+        elif [[ "$query" == ".message" ]]; then
+            echo "$json" | grep -o '"message":"[^"]*"' | head -1 | cut -d'"' -f4
+        elif [[ "$query" == ".login" ]]; then
+            echo "$json" | grep -o '"login":"[^"]*"' | head -1 | cut -d'"' -f4
+        else
+            echo "$json" | grep -o '"name":"[^"]*"' | head -1 | cut -d'"' -f4
+        fi
+    fi
+}
+
+get_json_val() {
+    local json="$1"
+    local key="$2"
+    if command -v jq > /dev/null 2>&1; then
+        echo "$json" | jq -r "$key"
+    else
+        echo "$json" | grep -o "\"$key\":\"[^\"]*\"" | head -1 | sed "s/.*\"$key\":\"//; s/\"$//"
+    fi
+}
+
+show_progress() {
+    local current=$1
+    local total=$2
+    local file=$3
+    local percent=$((current * 100 / total))
+    local hashes=$((percent / 2))
+    local spaces=$((50 - hashes))
+    printf "\r[${GREEN}%-${spaces}s${NC}] %3d%% %s" "$(printf '#%.0s' $(seq 1 $hashes) 2>/dev/null || echo -n '')" "$percent" "$file"
+}
+
 # ========================
 # ACCOUNT MANAGEMENT
 # ========================
@@ -224,12 +262,13 @@ upload_file() {
     local content
     content=$(base64 -w 0 "$file_path" 2>/dev/null || base64 "$file_path")
     
-    # Check if file exists in repo to get SHA using jq
+    # Check if file exists in repo to get SHA
     local sha=""
     local existing_sha
-    existing_sha=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
-        "https://api.github.com/repos/$repo/contents/$repo_path" | \
-        jq -r '.sha // empty')
+    local sha_response
+    sha_response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/repos/$repo/contents/$repo_path")
+    existing_sha=$(jq_safe "$sha_response" ".sha")
     
     if [[ -n "$existing_sha" && "$existing_sha" != "null" ]]; then
         sha="$existing_sha"
@@ -263,11 +302,8 @@ upload_file() {
         return 0
     else
         local msg
-        if command -v jq > /dev/null 2>&1; then
-            msg=$(echo "$response" | jq -r '.message // "Unknown error"')
-        else
-            msg=$(echo "$response" | grep -o '"message":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "Unknown error")
-        fi
+        msg=$(jq_safe "$response" ".message")
+        [[ -z "$msg" ]] && msg="Unknown error"
         log error "Failed: $msg"
         return 1
     fi
@@ -278,11 +314,12 @@ delete_file() {
     local repo_path="$2"
     local commit_msg="${3:-Delete $repo_path}"
     
-    # Get file SHA using jq
+    # Get file SHA
     local sha
-    sha=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
-        "https://api.github.com/repos/$repo/contents/$repo_path" | \
-        jq -r '.sha // empty')
+    local sha_response
+    sha_response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/repos/$repo/contents/$repo_path")
+    sha=$(jq_safe "$sha_response" ".sha")
     
     if [[ -z "$sha" || "$sha" == "null" ]]; then
         log error "File not found: $repo_path"
@@ -309,11 +346,8 @@ delete_file() {
         return 0
     else
         local msg
-        if command -v jq > /dev/null 2>&1; then
-            msg=$(echo "$response" | jq -r '.message // "Unknown error"')
-        else
-            msg=$(echo "$response" | grep -o '"message":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "Unknown error")
-        fi
+        msg=$(jq_safe "$response" ".message")
+        [[ -z "$msg" ]] && msg="Unknown error"
         log error "Failed: $msg (HTTP $code)"
         return 1
     fi
@@ -336,11 +370,10 @@ list_files() {
     fi
     
     echo -e "${BOLD}Files in $repo${NC}:"
-    # Parse response - try jq first, then sed
     if command -v jq > /dev/null 2>&1; then
-        echo "$response" | jq -r 'if type == "array" then .[] else . end | .name' 2>/dev/null || echo "$response" | sed -n 's/.*"name": "\([^"]*\)".*/\1/p'
+        echo "$response" | jq -r 'if type == "array" then .[] else . end | .name' 2>/dev/null || echo "$response" | grep -o '"name":"[^"]*"' | cut -d'"' -f4
     else
-        echo "$response" | sed -n 's/.*"name": "\([^"]*\)".*/\1/p'
+        echo "$response" | grep -o '"name":"[^"]*"' | cut -d'"' -f4
     fi
 }
 
@@ -423,11 +456,18 @@ do_upload() {
     # Upload files
     local success=0
     local failed=0
+    local total=${#FILES[@]}
+    local current=0
     
     for file in "${FILES[@]}"; do
+        current=$((current + 1))
         if [[ -f "$file" ]]; then
-            if [[ "$QUIET" != "true" ]]; then
+            if [[ "$QUIET" != "true" && "$PROGRESS" != "true" ]]; then
                 echo -e "${BLUE}Uploading:${NC} $file"
+            fi
+            
+            if [[ "$PROGRESS" == "true" ]]; then
+                show_progress "$current" "$total" "$file"
             fi
             
             if [[ "$DRY_RUN" == "true" ]]; then
@@ -444,6 +484,8 @@ do_upload() {
             failed=$((failed + 1))
         fi
     done
+    
+    [[ "$PROGRESS" == "true" ]] && echo
     
     # Summary
     echo
@@ -497,7 +539,11 @@ do_list() {
     fi
     
     echo -e "${BOLD}Files in $REPO${NC}:"
-    echo "$response" | jq -r '.[].name' 2>/dev/null || echo "$response" | sed -n 's/.*"name": "\([^"]*\)".*/\1/p'
+    if command -v jq > /dev/null 2>&1; then
+        echo "$response" | jq -r '.[].name'
+    else
+        echo "$response" | grep -o '"name":"[^"]*"' | cut -d'"' -f4
+    fi
 }
 
 list_repos() {
@@ -522,7 +568,7 @@ list_repos() {
         echo "$response" | jq -r '.[] | "\(.name) (\(.private ? "private" : "public"))"' 2>/dev/null || \
         echo "$response" | jq -r '.[].name'
     else
-        echo "$response" | sed -n 's/.*"name": "\([^"]*\)".*/\1/p'
+        echo "$response" | grep -o '"name":"[^"]*"' | cut -d'"' -f4
     fi
 }
 
@@ -552,8 +598,9 @@ OPTIONS:
         --list [PATH]            List files in repository
         --list-repos            List your repositories
         
-    -q, --quiet              Quiet mode (minimal output)
-    -n, --dry-run            Show what would be uploaded
+-q, --quiet              Quiet mode (minimal output)
+        -P, --progress          Show progress bar for uploads
+        -n, --dry-run            Show what would be uploaded
     -h, --help               Show this help
         
     --clear                  Clear saved credentials
@@ -620,6 +667,7 @@ LIST_PATH=""
 FILE_PATH=""
 DRY_RUN="false"
 QUIET="false"
+PROGRESS="false"
 SHOW_ACCOUNTS="false"
 ADD_ACCOUNT=""
 CLEAR_CREDS="false"
@@ -682,6 +730,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         -q|--quiet)
             QUIET="true"
+            shift
+            ;;
+        -P|--progress)
+            PROGRESS="true"
             shift
             ;;
         -n|--dry-run)
