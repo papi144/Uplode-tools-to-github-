@@ -1,197 +1,288 @@
-# GitHub Upload Tool
+# GitHub Direct Upload Tool
 
-> Simple, powerful file upload to GitHub from any terminal.
+> Upload files to GitHub **directly via API** - No git clone needed!
 
-A modern bash script that makes uploading files to GitHub repositories effortless. Supports multiple accounts, smart repository detection, and both interactive menu and command-line modes.
-
-- ✅ Works on Termux, Linux, macOS, WSL
-- ✅ Multiple GitHub accounts with auto-detection
-- ✅ Create repos on the fly
-- ✅ No git commands needed — just run and upload
-
----
+A powerful bash script that uploads files to GitHub repositories using the GitHub API. Fast, simple, and works on any system with `curl` and `jq`.
 
 ## ✨ Features
 
-- **Multi-Account Support** — Configure multiple GitHub accounts. The tool auto-detects which account has access to a repository and lets you choose when multiple accounts can access it.
-- **Smart Repo Creation** — When a repository doesn't exist, pick which account should create it.
-- **Interactive Menu** — User-friendly menu for beginners.
-- **Fully Scriptable** — All flags supported for automation.
-- **Secure** — Credentials stored with `600` permissions, never logged.
-- **Any File Type** — Upload APKs, PDFs, images, archives, anything.
+- 🚀 **Direct API Upload** - No git clone, no git commands needed
+- ⚡ **Fast** - Uploads directly to GitHub servers
+- 📁 **Upload Any File** - APKs, PDFs, images, archives, anything!
+- 🔄 **Update Files** - Automatically detects and updates existing files
+- 🗑️ **Delete Files** - Remove files from repositories
+- 📋 **List Files** - View files in any repository
+- 🔇 **Quiet Mode** - Minimal output for scripting
+- 💾 **Multi-Account** - Support for multiple GitHub accounts
+- 🔒 **Secure** - Credentials stored with proper permissions
+- 📦 **100MB Max** - Upload files up to 100MB
 
----
+## 📦 Requirements
 
-## 📦 Installation
+- `bash` (4.0+)
+- `curl`
+- `jq`
+- `GitHub Personal Access Token` with `repo` scope
+
+## 🔧 Installation
+
+### Quick Install
 
 ```bash
-# Clone the repository
-git clone https://github.com/papi144/Uplode-tools-to-github-.git
-cd Uplode-tools-to-github-
+# Download the script
+curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload
 
-# Make executable
+# Make it executable
 chmod +x github-upload
 
-# Optional: install to PATH
+# Optional: Install to PATH
+mkdir -p ~/bin
+mv github-upload ~/bin/
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+### From Source
+
+```bash
+git clone https://github.com/papi144/Uplode-tools-to-github-.git
+cd Uplode-tools-to-github-
+chmod +x github-upload
 sudo mv github-upload /usr/local/bin/
 ```
 
-**Requirements:** `git`, `curl`. No need for `gh` CLI anymore.
+## 🔐 Setup
 
----
+### 1. Create a GitHub Token
 
-## 🔐 Authentication
+1. Go to **GitHub → Settings → Developer settings**
+2. **Personal access tokens → Tokens (classic)**
+3. **Generate new token**
+4. Select **`repo`** scope (full control of repositories)
+5. Copy the token (starts with `ghp_`)
 
-First run will prompt for your GitHub credentials:
+### 2. Add Your Account
 
 ```bash
-./github-upload
+# Interactive (will ask for username and token)
+github-upload -A
+
+# Or non-interactive
+echo "GITHUB_USERNAME=yourusername" > ~/.config/github-upload/config
+echo "GITHUB_TOKEN=ghp_yourtoken" >> ~/.config/github-upload/config
+chmod 600 ~/.config/github-upload/config
 ```
-
-```
-GitHub username: your_username
-GitHub Personal Access Token: ghp_xxxxxxxxxxxx
-```
-
-Credentials are saved to:
-- Default account: `~/.config/github-upload/config`
-- Additional accounts: `~/.config/github-upload/accounts/<name>/config`
-
-### Create a Token
-
-1. Go to **GitHub Settings → Personal Access Tokens → Tokens (classic)**
-2. **Generate new token**
-3. Select **`repo`** scope (full control of private repositories)
-4. Copy the token (starts with `ghp_`)
-
----
 
 ## 🚀 Usage
 
-### Interactive Mode (Menu)
+### Basic Commands
 
 ```bash
-./github-upload
-```
+# Upload a file (creates repo if needed)
+github-upload -r my-repo -c myfile.apk
 
-Shows a menu:
-1. **Upload files** — Select repository and files interactively
-2. **Add another account** — Add more GitHub accounts
-3. **List accounts** — See configured accounts
-4. **Quit**
+# Upload to existing repo
+github-upload -r username/my-repo myfile.apk
 
-### Direct Mode (Command Line)
-
-```bash
-# Basic upload
-./github-upload -r user/repo file.txt
+# Upload with custom message
+github-upload -r my-repo -m "Version 2.0" app.apk
 
 # Upload multiple files
-./github-upload -r user/repo file1.pdf file2.png backup.zip
+github-upload -r my-repo file1.txt file2.png file3.pdf
 
-# Custom commit message
-./github-upload -r user/repo -m "Update documentation" README.md
-
-# Use a specific branch
-./github-upload -r user/repo -b develop app.apk
-
-# Create a new repository and upload
-./github-upload -c -r new-repo-name *.apk
-
-# Create a private repository
-./github-upload -c -r private-repo --private secrets.json
-
-# Force a specific account
-./github-upload -a work -r company/project file.zip
-
-# Add a new account (non-interactive if name provided)
-./github-upload -A personal
+# Upload with wildcard
+github-upload -r my-repo '*.apk'
 ```
 
----
+### Create Repository Options
 
-## 🔧 Options
+```bash
+# Create public repo
+github-upload -r my-app -c myfile.apk
+
+# Create private repo
+github-upload -r my-app --private -c myfile.apk
+
+# Create with description
+github-upload -r my-app -c -d "My App Description" myfile.apk
+```
+
+### File Management
+
+```bash
+# Upload to custom path in repo
+github-upload -r my-repo -f "apps/v2/app.apk" app.apk
+
+# List files in repo
+github-upload -r my-repo --list
+
+# List files in subfolder
+github-upload -r my-repo --list folder/subfolder
+
+# Delete a file
+github-upload -r my-repo --delete oldfile.txt
+
+# Delete file with custom message
+github-upload -r my-repo --delete oldfile.txt -m "Remove deprecated file"
+```
+
+### Advanced Options
+
+```bash
+# Quiet mode (minimal output)
+github-upload -r my-repo -q *.apk
+
+# Dry run (preview what would be uploaded)
+github-upload -r my-repo -n *.apk
+
+# Use specific account
+github-upload -a work -r company/repo file.zip
+
+# Update existing file
+github-upload -r my-repo -m "Updated" myfile.apk
+```
+
+## 📝 Command Reference
 
 | Option | Description |
 |--------|-------------|
-| `-r, --repo REPO` | Repository (`user/repo` or just `repo`) |
-| `-m, --message MSG` | Commit message (default: "Upload files via github-upload") |
-| `-b, --branch BRANCH` | Target branch (default: repository's default) |
-| `-a, --account NAME` | Use specific account (default: auto-detect) |
-| `-A, --add-account [NAME]` | Add a new account (prompts if no name) |
-| `-c, --create` | Create repository if missing |
-| `-d, --description DESC` | Repository description (with `-c`) |
-| `--public` | Make new repo public (default) |
-| `--private` | Make new repo private |
+| `-r, --repo REPO` | Repository name (`repo` or `user/repo`) |
+| `-c, --create` | Create repository if it doesn't exist |
+| `-p, --private` | Make new repository private |
+| `-d, --description TEXT` | Repository description (with `-c`) |
+| `-m, --message TEXT` | Commit message |
+| `-f, --file-path PATH` | Upload to custom path in repo |
+| `-A, --add-account` | Add a new GitHub account |
+| `-a, --account NAME` | Use specific account |
+| `--list-accounts` | List all saved accounts |
+| `--list [PATH]` | List files in repository |
+| `--delete PATH` | Delete a file from repository |
+| `-q, --quiet` | Quiet mode (minimal output) |
+| `-n, --dry-run` | Show what would be uploaded |
+| `--clear` | Clear saved credentials |
 | `-h, --help` | Show help |
 
----
+## 📁 Configuration
 
-## 🤔 How Multi-Account Works
+Credentials are stored in:
+- **Default account:** `~/.config/github-upload/config`
+- **Additional accounts:** `~/.config/github-upload/accounts/NAME/config`
 
-1. **Add accounts** once: `./github-upload -A personal`, `./github-upload -A work`
-2. **Upload**: `./github-upload -r some/repo file.txt`
-   - Script checks all configured accounts for access
-   - If **one** account has access → uses it
-   - If **multiple** accounts have access → you choose which to use
-   - If **none** have access and `-c` used → you choose which account creates it
-3. **Credentials are reused** — no re-entering tokens
+Permissions are set to `600` (owner read/write only) for security.
 
----
+## 💡 Examples
 
-## 📝 Examples
+### Upload an APK
 
-### Upload a backup archive
 ```bash
-./github-upload -r myuser/backups -c -d "Daily backup" backup_$(date +%Y%m%d).tar.gz
+github-upload -r my-android-app -c -m "v1.0.0 release" app.apk
 ```
 
-### Multiple accounts scenario
+### Upload Multiple Files
+
 ```bash
-./github-upload -A personal    # Enter personal account tokens
-./github-upload -A work        # Enter work account tokens
-
-# Upload to personal repo (auto-detected)
-./github-upload -r personaluser/personal-repo photo.jpg
-
-# Upload to work repo (auto-detected) or choose if both have access
-./github-upload -r company/work-repo report.pdf
-
-# Force using work account
-./github-upload -a work -r company/work-repo report.pdf
+github-upload -r backup-repo -m "Daily backup" file1.zip file2.tar
 ```
 
----
+### Update App with New Version
 
-## 🛠️ Configuration Files
+```bash
+github-upload -r my-app -m "Updated to v2.0" app.apk
+```
 
-- Default account: `~/.config/github-upload/config`
-- Named accounts: `~/.config/github-upload/accounts/<name>/config`
-- Environment overrides: `GITHUB_USERNAME`, `GITHUB_TOKEN`, or `GITHUB_USERNAME_<NAME>`, `GITHUB_TOKEN_<NAME>`
+### Upload All APKs from Folder
 
----
+```bash
+github-upload -r android-apps -c -m "All apps" ./downloads/*.apk
+```
 
-## ❓ Troubleshooting
+### Organize Files with Paths
 
-**"Repository not found"**
-- Use `-c` to create it: `./github-upload -c -r new-repo file.txt`
-- Or check you have access with the selected account
+```bash
+github-upload -r my-repo \
+  -f "images/icons/app.png" icon.png \
+  -f "images/screenshots/s1.png" screenshot1.png \
+  -f "images/screenshots/s2.png" screenshot2.png
+```
 
-**"Permission denied"**
-- Token may be expired or lack `repo` scope. Generate a new token.
+### Backup Configuration
 
-**"No accounts configured"**
-- Run `./github-upload -A` to add an account
+```bash
+github-upload -r my-configs -c -d "System configurations" \
+  ~/.ssh/config \
+  ~/.gitconfig \
+  .bashrc
+```
 
-**Branch not found**
-- The script will create the specified branch automatically
+### Delete Old Files
 
----
+```bash
+# Delete single file
+github-upload -r my-repo --delete old-version.apk
+
+# Delete multiple files
+github-upload -r my-repo --delete temp1.tmp
+github-upload -r my-repo --delete temp2.tmp
+```
+
+## 🔍 Troubleshooting
+
+### "No account configured"
+
+Run `github-upload -A` to add your GitHub account.
+
+### "Repository not found"
+
+Use `-c` flag to create the repository:
+```bash
+github-upload -r new-repo -c myfile.apk
+```
+
+### "File too large"
+
+Maximum file size is 100MB. For larger files, use Git LFS or split the file.
+
+### "Permission denied"
+
+Check your token has `repo` scope. Generate a new token at:
+https://github.com/settings/tokens
+
+### "Invalid token"
+
+Verify your token is correct. Run:
+```bash
+github-upload --list-accounts
+```
+
+If issues persist, clear and re-add:
+```bash
+github-upload --clear
+github-upload -A
+```
+
+## 🌐 Works On
+
+- ✅ Linux (all distros)
+- ✅ macOS
+- ✅ Windows (WSL)
+- ✅ Android (Termux)
+- ✅ VPS / Servers
+- ✅ GitHub Codespaces
+- ✅ GitLab CI / GitHub Actions
 
 ## 📄 License
 
-MIT © 2026
+MIT License - See [LICENSE](LICENSE)
+
+## 🤝 Contributing
+
+Pull requests welcome! Please read contributing guidelines first.
+
+## 📧 Contact
+
+- GitHub: [@papi144](https://github.com/papi144)
+- Issues: [Open an issue](https://github.com/papi144/Uplode-tools-to-github-/issues)
 
 ---
 
-**Enjoy uploading!** 🚀
+**Made with ❤️ for easy file uploads to GitHub**
