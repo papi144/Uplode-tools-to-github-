@@ -133,6 +133,36 @@ echo "GITHUB_TOKEN=ghp_yourtoken" >> ~/.config/github-upload/config
 chmod 600 ~/.config/github-upload/config
 ```
 
+### Secure Token Storage
+
+#### Option 1: Environment Variable (Recommended)
+```bash
+# Add to ~/.bashrc or ~/.profile
+export GITHUB_TOKEN="ghp_yourtoken"
+export GITHUB_USERNAME="yourusername"
+
+# Source it
+source ~/.bashrc
+```
+
+#### Option 2: System Keychain (Linux)
+```bash
+# Install keychain
+apt install keychain
+
+# Add token
+keychain --eval github.token ghp_yourtoken >> ~/.bashrc
+
+# Add to ~/.bashrc
+eval $(keychain --eval github.token)
+```
+
+#### Option 3: macOS Keychain
+```bash
+# Store in Keychain
+security add-internet-password -s github.com -a username -w "ghp_yourtoken"
+```
+
 ## 🚀 Usage
 
 ### Basic Commands
