@@ -146,6 +146,19 @@ load_account() {
     local name="$1"
     unset GITHUB_USERNAME GITHUB_TOKEN 2>/dev/null
     
+    # Priority 1: Environment variables (most secure)
+    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
+        return 0
+    fi
+    
+    # Priority 2: System keychain (Linux)
+    if command -v keychain > /dev/null 2>&1; then
+        local key_pass
+        key_pass=$(keychain -q --eval github.token 2>/dev/null)
+        [[ -n "$key_pass" ]] && GITHUB_TOKEN="$key_pass" && return 0
+    fi
+    
+    # Priority 3: Config file
     if [[ -z "$name" ]] || [[ "$name" == "default" ]]; then
         if [[ -f "$DEFAULT_CONFIG" ]]; then
             # shellcheck disable=SC1090
