@@ -845,16 +845,11 @@ fi
 
 # Handle --list-repos
 handle_list_repos() {
-    if [[ -f "$DEFAULT_CONFIG" ]]; then
-        source "$DEFAULT_CONFIG"
-    else
-        log error "No account configured"
-        exit 1
-    fi
+    . "$DEFAULT_CONFIG" 2>/dev/null || { log error "No account configured"; exit 1; }
     local response
     response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/user/repos?per_page=100")
     echo -e "${BOLD}Your repositories:${NC}"
-    echo "$response" | grep -o '"name":"[^"]*"' | cut -d'"' -f4
+    echo "$response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//'
     exit 0
 }
 
@@ -865,12 +860,7 @@ fi
 # Handle --list-branches
 handle_list_branches() {
     [[ -z "$REPO" ]] && { log error "Repository required"; exit 1; }
-    if [[ -f "$DEFAULT_CONFIG" ]]; then
-        source "$DEFAULT_CONFIG"
-    else
-        log error "No account configured"
-        exit 1
-    fi
+    . "$DEFAULT_CONFIG" 2>/dev/null || { log error "No account configured"; exit 1; }
     [[ "$REPO" != */* ]] && REPO="$GITHUB_USERNAME/$REPO"
     local response
     response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$REPO/branches")
@@ -887,12 +877,7 @@ fi
 handle_create_branch() {
     [[ -z "$REPO" ]] && { log error "Repository required"; exit 1; }
     [[ -z "$BRANCH_NAME" ]] && { log error "Branch name required"; exit 1; }
-    if [[ -f "$DEFAULT_CONFIG" ]]; then
-        source "$DEFAULT_CONFIG"
-    else
-        log error "No account configured"
-        exit 1
-    fi
+    . "$DEFAULT_CONFIG" 2>/dev/null || { log error "No account configured"; exit 1; }
     [[ "$REPO" != */* ]] && REPO="$GITHUB_USERNAME/$REPO"
     local ref_response
     ref_response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$REPO/git/refs/heads/$SOURCE_BRANCH")
