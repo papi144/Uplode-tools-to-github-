@@ -360,8 +360,6 @@ MIT License - See [LICENSE](LICENSE)
 | Windows (Git Bash) | ✅ |
 | Android (Termux) | ✅ |
 | VPS / Servers | ✅ |
-| GitHub Codespaces | ✅ |
-| GitHub Actions / CI | ✅ |
 
 ## 🤝 Contributing
 
