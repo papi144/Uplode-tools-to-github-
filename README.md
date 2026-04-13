@@ -156,6 +156,7 @@ github-upload -r my-repo -m "Updated" myfile.apk
 | `-a, --account NAME` | Use specific account |
 | `--list-accounts` | List all saved accounts |
 | `--list [PATH]` | List files in repository |
+| `--list-repos` | List your repositories |
 | `--delete PATH` | Delete a file from repository |
 | `-q, --quiet` | Quiet mode (minimal output) |
 | `-n, --dry-run` | Show what would be uploaded |
@@ -223,6 +224,13 @@ github-upload -r my-repo --delete old-version.apk
 # Delete multiple files
 github-upload -r my-repo --delete temp1.tmp
 github-upload -r my-repo --delete temp2.tmp
+```
+
+### List Your Repositories
+
+```bash
+# List all your GitHub repositories
+github-upload --list-repos
 ```
 
 ## 🔍 Troubleshooting
