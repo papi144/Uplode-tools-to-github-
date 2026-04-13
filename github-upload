@@ -72,6 +72,48 @@ get_json_val() {
     fi
 }
 
+ encrypt_config() {
+    local config_file="$1"
+    local password="$2"
+    
+    if [[ ! -f "$config_file" ]]; then
+        return 1
+    fi
+    
+    if command -v openssl > /dev/null 2>&1; then
+        openssl enc -aes-256-cbc -salt -pbkdf2 -pass pass:"$password" -in "$config_file" -out "$config_file.enc" 2>/dev/null
+        mv "$config_file.enc" "$config_file"
+        chmod 600 "$config_file"
+        return 0
+    else
+        log error "openssl not found for encryption"
+        return 1
+    fi
+}
+
+decrypt_config() {
+    local config_file="$1"
+    local password="$2"
+    
+    if [[ ! -f "$config_file" ]]; then
+        return 1
+    fi
+    
+    if command -v openssl > /dev/null 2>&1; then
+        openssl enc -aes-256-cbc -d -pbkdf2 -pass pass:"$password" -in "$config_file" -out "$config_file.tmp" 2>/dev/null
+        if [[ $? -eq 0 ]]; then
+            mv "$config_file.tmp" "$config_file"
+            chmod 600 "$config_file"
+            return 0
+        fi
+        rm -f "$config_file.tmp"
+        return 1
+    else
+        log error "openssl not found for decryption"
+        return 1
+    fi
+}
+
 show_progress() {
     local current=$1
     local total=$2
@@ -80,6 +122,68 @@ show_progress() {
     local hashes=$((percent / 2))
     local spaces=$((50 - hashes))
     printf "\r[${GREEN}%-${spaces}s${NC}] %3d%% %s" "$(printf '#%.0s' $(seq 1 $hashes) 2>/dev/null || echo -n '')" "$percent" "$file"
+}
+
+get_mime_type() {
+    local file="$1"
+    local ext="${file##*.}"
+    local filename="${file##*/}"
+    
+    # Try file command first
+    if command -v file > /dev/null 2>&1; then
+        local mime
+        mime=$(file -b --mime-type "$file" 2>/dev/null)
+        [[ -n "$mime" && "$mime" != "application/octet-stream" ]] && echo "$mime" && return 0
+    fi
+    
+    # Fallback to extension mapping
+    case "$ext" in
+        apk) echo "application/vnd.android.package-archive" ;;
+        ipa) echo "application/iphone" ;;
+        jar) echo "application/java-archive" ;;
+        zip) echo "application/zip" ;;
+        tar) echo "application/x-tar" ;;
+        gz|tgz) echo "application/gzip" ;;
+        rar) echo "application/x-rar-compressed" ;;
+        7z) echo "application/x-7z-compressed" ;;
+        xz) echo "application/x-xz" ;;
+        pdf) echo "application/pdf" ;;
+        doc) echo "application/msword" ;;
+        docx) echo "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ;;
+        xls) echo "application/vnd.ms-excel" ;;
+        xlsx) echo "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ;;
+        ppt) echo "application/vnd.ms-powerpoint" ;;
+        pptx) echo "application/vnd.openxmlformats-officedocument.presentationml.presentation" ;;
+        txt|log) echo "text/plain" ;;
+        json) echo "application/json" ;;
+        xml) echo "application/xml" ;;
+        html|htm) echo "text/html" ;;
+        css) echo "text/css" ;;
+        js) echo "application/javascript" ;;
+        sh|bash) echo "application/x-sh" ;;
+        py) echo "text/x-python" ;;
+        java) echo "text/x-java" ;;
+        c|h|cpp) echo "text/x-c" ;;
+        go) echo "text/x-go" ;;
+        rs) echo "text/x-rust" ;;
+        md|markdown) echo "text/markdown" ;;
+        png) echo "image/png" ;;
+        jpg|jpeg) echo "image/jpeg" ;;
+        gif) echo "image/gif" ;;
+        webp) echo "image/webp" ;;
+        svg) echo "image/svg+xml" ;;
+        ico) echo "image/x-icon" ;;
+        bmp) echo "image/bmp" ;;
+        mp3) echo "audio/mpeg" ;;
+        wav) echo "audio/wav" ;;
+        mp4) echo "video/mp4" ;;
+        avi) echo "video/x-msvideo" ;;
+        mkv) echo "video/x-matroska" ;;
+        deb) echo "application/x-deb" ;;
+        rpm) echo "application/x-rpm" ;;
+        dat) echo "application/octet-stream" ;;
+        *) echo "application/octet-stream" ;;
+    esac
 }
 
 # ========================
@@ -300,13 +404,19 @@ upload_file() {
     tmpfile=$(mktemp)
     printf '%s' "$json" > "$tmpfile"
     
+    # Determine upload URL with branch support
+    local api_url="https://api.github.com/repos/$repo/contents/$repo_path"
+    if [[ -n "$TARGET_BRANCH" ]]; then
+        api_url="$api_url?ref=$TARGET_BRANCH"
+    fi
+    
     local response code
     response=$(curl -s -w "\n%{http_code}" -X PUT \
         -H "Authorization: Bearer $GITHUB_TOKEN" \
         -H "Accept: application/vnd.github+json" \
         -H "Content-Type: application/json" \
         --data-binary "@$tmpfile" \
-        "https://api.github.com/repos/$repo/contents/$repo_path")
+        "$api_url")
     code=$(echo "$response" | tail -n1)
     rm -f "$tmpfile"
     
@@ -703,6 +813,7 @@ OPTIONS:
         --list-repos            List your repositories
         --list-branches        List branches in repository
         -b, --branch NAME     Create new branch
+        --target-branch      Upload to specific branch
         
     -q, --quiet              Quiet mode (minimal output)
         -P, --progress          Show progress bar for uploads
@@ -710,6 +821,8 @@ OPTIONS:
     -h, --help               Show this help
         
     --clear                  Clear saved credentials
+        --encrypt PASSWORD    Encrypt config file
+        --decrypt PASSWORD    Decrypt config file
 
 EXAMPLES:
     # Upload a file
@@ -775,11 +888,14 @@ LIST_PATH=""
 FILE_PATH=""
 BRANCH_NAME=""
 SOURCE_BRANCH="main"
+TARGET_BRANCH=""
 DRY_RUN="false"
 QUIET="false"
 PROGRESS="false"
 SHOW_ACCOUNTS="false"
 ADD_ACCOUNT=""
+ENCRYPT_CONFIG=""
+DECRYPT_CONFIG=""
 CLEAR_CREDS="false"
 OVERWRITE="false"
 
@@ -851,6 +967,10 @@ while [[ $# -gt 0 ]]; do
             SOURCE_BRANCH="$2"
             shift 2
             ;;
+        --target-branch)
+            TARGET_BRANCH="$2"
+            shift 2
+            ;;
         -q|--quiet)
             QUIET="true"
             shift
@@ -874,6 +994,14 @@ while [[ $# -gt 0 ]]; do
         --overwrite)
             OVERWRITE="true"
             shift
+            ;;
+        --encrypt)
+            ENCRYPT_CONFIG="$2"
+            shift 2
+            ;;
+        --decrypt)
+            DECRYPT_CONFIG="$2"
+            shift 2
             ;;
         -*)
             log error "Unknown option: $1"
@@ -911,7 +1039,19 @@ fi
 # Handle --add-account
 if [[ -n "$ADD_ACCOUNT" ]]; then
     add_account "$ADD_ACCOUNT"
-    exit 0
+    exit $?
+fi
+
+# Handle --encrypt
+if [[ -n "$ENCRYPT_CONFIG" ]]; then
+    encrypt_config "$DEFAULT_CONFIG" "$ENCRYPT_CONFIG"
+    exit $?
+fi
+
+# Handle --decrypt
+if [[ -n "$DECRYPT_CONFIG" ]]; then
+    decrypt_config "$DEFAULT_CONFIG" "$DECRYPT_CONFIG"
+    exit $?
 fi
 
 # Handle --delete
