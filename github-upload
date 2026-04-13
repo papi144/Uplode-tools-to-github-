@@ -243,22 +243,31 @@ upload_file() {
         "$content" \
         "$([[ -n "$sha" ]] && printf ',"sha":"%s"' "$sha" || printf '')")
     
-    # Upload file directly via API
+    # Upload file directly via API (use temp file for Termux compatibility)
+    local tmpfile
+    tmpfile=$(mktemp)
+    printf '%s' "$json" > "$tmpfile"
+    
     local response code
     response=$(curl -s -w "\n%{http_code}" -X PUT \
         -H "Authorization: Bearer $GITHUB_TOKEN" \
         -H "Accept: application/vnd.github+json" \
         -H "Content-Type: application/json" \
-        -d "$json" \
+        --data-binary "@$tmpfile" \
         "https://api.github.com/repos/$repo/contents/$repo_path")
     code=$(echo "$response" | tail -n1)
+    rm -f "$tmpfile"
     
     if [[ "$code" == "200" ]] || [[ "$code" == "201" ]]; then
         log success "Uploaded: $repo_path"
         return 0
     else
         local msg
-        msg=$(echo "$response" | jq -r '.message // "Unknown error"')
+        if command -v jq > /dev/null 2>&1; then
+            msg=$(echo "$response" | jq -r '.message // "Unknown error"')
+        else
+            msg=$(echo "$response" | grep -o '"message":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "Unknown error")
+        fi
         log error "Failed: $msg"
         return 1
     fi
@@ -280,25 +289,31 @@ delete_file() {
         return 1
     fi
     
-    # Delete via API
-    local json
-    json=$(printf '{"message":"%s","sha":"%s"}' "$commit_msg" "$sha")
+    # Delete via API (use temp file for Termux compatibility)
+    local tmpfile
+    tmpfile=$(mktemp)
+    printf '{"message":"%s","sha":"%s"}' "$commit_msg" "$sha" > "$tmpfile"
     
     local response code
     response=$(curl -s -w "\n%{http_code}" -X DELETE \
         -H "Authorization: Bearer $GITHUB_TOKEN" \
         -H "Accept: application/vnd.github+json" \
         -H "Content-Type: application/json" \
-        -d "$json" \
+        --data-binary "@$tmpfile" \
         "https://api.github.com/repos/$repo/contents/$repo_path")
     code=$(echo "$response" | tail -n1)
+    rm -f "$tmpfile"
     
     if [[ "$code" == "200" ]] || [[ "$code" == "204" ]]; then
         log success "Deleted: $repo_path"
         return 0
     else
         local msg
-        msg=$(echo "$response" | jq -r '.message // "Unknown error"')
+        if command -v jq > /dev/null 2>&1; then
+            msg=$(echo "$response" | jq -r '.message // "Unknown error"')
+        else
+            msg=$(echo "$response" | grep -o '"message":"[^"]*"' | head -1 | cut -d'"' -f4 || echo "Unknown error")
+        fi
         log error "Failed: $msg (HTTP $code)"
         return 1
     fi
