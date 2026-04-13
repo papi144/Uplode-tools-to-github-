@@ -583,6 +583,9 @@ EXAMPLES:
     # List files in repo
     github-upload -r my-repo --list
     
+    # List your repositories
+    github-upload --list-repos
+    
     # Add account
     github-upload -A
     
