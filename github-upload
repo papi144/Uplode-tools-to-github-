@@ -500,6 +500,32 @@ do_list() {
     echo "$response" | jq -r '.[].name' 2>/dev/null || echo "$response" | sed -n 's/.*"name": "\([^"]*\)".*/\1/p'
 }
 
+list_repos() {
+    if [[ -f "$DEFAULT_CONFIG" ]]; then
+        source "$DEFAULT_CONFIG"
+    else
+        log error "No account configured. Run -A to add one."
+        exit 1
+    fi
+    
+    local response
+    response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/user/repos?per_page=100")
+    
+    if echo "$response" | grep -q '"message"'; then
+        log error "Failed to list repos"
+        exit 1
+    fi
+    
+    echo -e "${BOLD}Your repositories:${NC}"
+    if command -v jq > /dev/null 2>&1; then
+        echo "$response" | jq -r '.[] | "\(.name) (\(.private ? "private" : "public"))"' 2>/dev/null || \
+        echo "$response" | jq -r '.[].name'
+    else
+        echo "$response" | sed -n 's/.*"name": "\([^"]*\)".*/\1/p'
+    fi
+}
+
 show_help() {
     cat << 'HELPEOF'
 ╔══════════════════════════════════════════════════════════════════╗
@@ -522,8 +548,9 @@ OPTIONS:
     -a, --account NAME       Use specific account
     --list-accounts          Show saved accounts
         
-    --delete PATH            Delete a file from repository
-    --list [PATH]            List files in repository
+--delete PATH            Delete a file from repository
+        --list [PATH]            List files in repository
+        --list-repos            List your repositories
         
     -q, --quiet              Quiet mode (minimal output)
     -n, --dry-run            Show what would be uploaded
@@ -585,6 +612,7 @@ FILES=()
 SPECIFIED_ACCOUNT=""
 DELETE_FILE=""
 DO_LIST="false"
+LIST_REPOS="false"
 LIST_PATH=""
 FILE_PATH=""
 DRY_RUN="false"
@@ -643,6 +671,10 @@ while [[ $# -gt 0 ]]; do
                 LIST_PATH="$2"
                 shift
             fi
+            shift
+            ;;
+        --list-repos)
+            LIST_REPOS="true"
             shift
             ;;
         -q|--quiet)
@@ -713,6 +745,12 @@ fi
 # Handle --list
 if [[ "$DO_LIST" == "true" ]]; then
     do_list
+    exit $?
+fi
+
+# Handle --list-repos
+if [[ "$LIST_REPOS" == "true" ]]; then
+    list_repos
     exit $?
 fi
 
