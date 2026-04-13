@@ -576,15 +576,15 @@ list_branches() {
     local repo="$1"
     [[ -z "$repo" ]] && { log error "Repository required. Use -r repo"; exit 1; }
     
-    if [[ "$repo" != */* ]]; then
-        repo="$GITHUB_USERNAME/$repo"
-    fi
-    
     if [[ -f "$DEFAULT_CONFIG" ]]; then
         source "$DEFAULT_CONFIG"
     else
         log error "No account configured. Run -A to add one."
         exit 1
+    fi
+    
+    if [[ "$repo" != */* ]]; then
+        repo="$GITHUB_USERNAME/$repo"
     fi
     
     local response
@@ -612,15 +612,15 @@ create_branch() {
     [[ -z "$repo" ]] && { log error "Repository required. Use -r repo"; exit 1; }
     [[ -z "$branch_name" ]] && { log error "Branch name required. Use -b branch"; exit 1; }
     
-    if [[ "$repo" != */* ]]; then
-        repo="$GITHUB_USERNAME/$repo"
-    fi
-    
     if [[ -f "$DEFAULT_CONFIG" ]]; then
         source "$DEFAULT_CONFIG"
     else
         log error "No account configured. Run -A to add one."
         exit 1
+    fi
+    
+    if [[ "$repo" != */* ]]; then
+        repo="$GITHUB_USERNAME/$repo"
     fi
     
     local ref_response
