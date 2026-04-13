@@ -372,4 +372,4 @@ Pull requests welcome! Please read contributing guidelines first.
 
 ---
 
-**Made with ❤️ enjoy!**
+**Enjoy!**
