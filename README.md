@@ -296,6 +296,42 @@ github-upload -A
 - ✅ GitHub Codespaces
 - ✅ GitLab CI / GitHub Actions
 
+## 🪟 Windows Installation
+
+### Option 1: WSL (Recommended)
+```powershell
+# Install WSL
+wsl --install
+
+# Then run in WSL:
+bash -c "curl -L https://raw.githubusercontent.com/papi144/Uplode-tools-to-github/main/github-upload -o github-upload"
+chmod +x github-upload
+./github-upload -A
+```
+
+### Option 2: Git Bash (No WSL)
+```powershell
+# Download using PowerShell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/papi144/Uplode-tools-to-github/main/github-upload" -OutFile "github-upload"
+
+# Or use curl (from Git for Windows)
+curl -L https://raw.githubusercontent.com/papi144/Uplode-tools-to-github/main/github-upload -o github-upload
+
+# Set execute permission
+ attrib +x github-upload
+
+# Run
+.\github-upload -A
+```
+
+### Option 3: PowerShell Only
+```powershell
+# Download the script
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/papi144/Uplode-tools-to-github/main/github-upload" -OutFile "github-upload.ps1"
+
+# Edit and run with PowerShell - use curl.exe and bash where needed
+```
+
 ## 📄 License
 
 MIT License - See [LICENSE](LICENSE)
