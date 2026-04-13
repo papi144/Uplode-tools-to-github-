@@ -216,7 +216,19 @@ GITHUB_USERNAME="$user"
 GITHUB_TOKEN="$token"
 EOF
     chmod 600 "$config_file"
-    echo -e "${GREEN}✓ Account '$name' saved.${NC}"
+    
+    if command -v openssl > /dev/null 2>&1; then
+        read -rsp "Set encryption password (leave empty to skip): " enc_password
+        if [[ -n "$enc_password" ]]; then
+            encrypt_config "$config_file" "$enc_password"
+            echo -e "${GREEN}✓ Account '$name' saved and encrypted.${NC}"
+        else
+            echo -e "${GREEN}✓ Account '$name' saved.${NC}"
+        fi
+    else
+        openssl_missing="true"
+        echo -e "${GREEN}✓ Account '$name' saved.${NC}"
+    fi
 }
 
 list_accounts() {
@@ -265,6 +277,14 @@ load_account() {
     # Priority 3: Config file
     if [[ -z "$name" ]] || [[ "$name" == "default" ]]; then
         if [[ -f "$DEFAULT_CONFIG" ]]; then
+            # Check if encrypted and decrypt
+            if [[ "$(file -b "$DEFAULT_CONFIG" 2>/dev/null)" == *"AES-256"*"CBC"*"encrypted"* ]] || [[ "$(head -c 20 "$DEFAULT_CONFIG" 2>/dev/null | xxd)" == *"53616c7465715f"* ]]; then
+                read -rsp "Config is encrypted. Enter password: " dec_password
+                if ! decrypt_config "$DEFAULT_CONFIG" "$dec_password"; then
+                    log error "Decryption failed"
+                    return 1
+                fi
+            fi
             # shellcheck disable=SC1090
             source "$DEFAULT_CONFIG"
         fi
