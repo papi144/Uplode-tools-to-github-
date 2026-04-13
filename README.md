@@ -29,8 +29,12 @@ A powerful bash script that uploads files to GitHub repositories using the GitHu
 ### Linux / VPS / Server
 
 ```bash
-# Download the script
+# Option 1: Download with curl
 curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload
+
+# Option 2: Clone with git
+git clone https://github.com/papi144/Uplode-tools-to-github-.git
+cd Uplode-tools-to-github-
 
 # Make it executable
 chmod +x github-upload
@@ -45,8 +49,12 @@ source ~/.bashrc
 ### macOS
 
 ```bash
-# Download the script
-curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload
+# Option 1: Download with curl
+curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-toGithub-/main/github-upload
+
+# Option 2: Clone with git
+git clone https://github.com/papi144/Uplode-tools-to-github-.git
+cd Uplode-tools-to-github-
 
 # Make it executable
 chmod +x github-upload
@@ -62,10 +70,14 @@ source ~/.bashrc
 
 ```bash
 # Install dependencies
-pkg install curl jq
+pkg install curl jq git
 
-# Download the script
+# Option 1: Download with curl
 curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload
+
+# Option 2: Clone with git
+git clone https://github.com/papi144/Uplode-tools-to-github-.git
+cd Uplode-tools-to-github-
 
 # Make it executable
 chmod +x github-upload
@@ -78,7 +90,13 @@ chmod +x github-upload
 wsl --install
 
 # Then in WSL terminal:
+# Option 1: Download with curl
 curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload
+
+# Option 2: Clone with git
+git clone https://github.com/papi144/Uplode-tools-to-github-.git
+cd Uplode-tools-to-github-
+
 chmod +x github-upload
 ./github-upload -A
 ```
@@ -99,15 +117,24 @@ chmod +x github-upload
 ### Windows (PowerShell)
 
 ```powershell
+# Download the script
 Invoke-WebRequest -Uri "https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload" -OutFile "github-upload"
 ```
 
-### From Source
+### From Source (git clone)
 
 ```bash
+# Clone the repository
 git clone https://github.com/papi144/Uplode-tools-to-github-.git
 cd Uplode-tools-to-github-
+
+# Make it executable
 chmod +x github-upload
+
+# Run
+./github-upload -A
+
+# Optional: Install to PATH
 sudo mv github-upload /usr/local/bin/
 ```
 
