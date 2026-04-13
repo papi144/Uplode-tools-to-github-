@@ -48,7 +48,7 @@ jq_safe() {
     local json="$1"
     local query="$2"
     if command -v jq > /dev/null 2>&1; then
-        echo "$json" | jq -r "$query"
+        echo "$json" | jq -r "$query" 2>/dev/null || echo ""
     else
         if [[ "$query" == ".sha" ]]; then
             echo "$json" | grep -o '"sha":"[^"]*"' | head -1 | cut -d'"' -f4
@@ -66,7 +66,7 @@ get_json_val() {
     local json="$1"
     local key="$2"
     if command -v jq > /dev/null 2>&1; then
-        echo "$json" | jq -r "$key"
+        echo "$json" | jq -r "$key" 2>/dev/null || echo ""
     else
         echo "$json" | grep -o "\"$key\":\"[^\"]*\"" | head -1 | sed "s/.*\"$key\":\"//; s/\"$//"
     fi
