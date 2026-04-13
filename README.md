@@ -26,7 +26,7 @@ A powerful bash script that uploads files to GitHub repositories using the GitHu
 
 ## 🔧 Installation
 
-### Quick Install
+### Linux / VPS / Server
 
 ```bash
 # Download the script
@@ -40,6 +40,66 @@ mkdir -p ~/bin
 mv github-upload ~/bin/
 echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
+```
+
+### macOS
+
+```bash
+# Download the script
+curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload
+
+# Make it executable
+chmod +x github-upload
+
+# Optional: Install to PATH
+mkdir -p ~/bin
+mv github-upload ~/bin/
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+### Android (Termux)
+
+```bash
+# Install dependencies
+pkg install curl jq
+
+# Download the script
+curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload
+
+# Make it executable
+chmod +x github-upload
+```
+
+### Windows (WSL) - Recommended
+
+```bash
+# Install WSL if not already
+wsl --install
+
+# Then in WSL terminal:
+curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload
+chmod +x github-upload
+./github-upload -A
+```
+
+### Windows (Git Bash)
+
+```bash
+# Download using curl
+curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload
+
+# Make it executable
+chmod +x github-upload
+
+# Run
+./github-upload -A
+```
+
+### Windows (PowerShell)
+
+```powershell
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload" -OutFile "github-upload"
 ```
 
 ### From Source
@@ -286,55 +346,22 @@ github-upload --clear
 github-upload -A
 ```
 
-## 🌐 Works On
-
-- ✅ Linux (all distros)
-- ✅ macOS
-- ✅ Windows (WSL)
-- ✅ Android (Termux)
-- ✅ VPS / Servers
-- ✅ GitHub Codespaces
-- ✅ GitLab CI / GitHub Actions
-
-## 🪟 Windows Installation
-
-### Option 1: WSL (Recommended)
-```powershell
-# Install WSL
-wsl --install
-
-# Then run in WSL:
-bash -c "curl -L https://raw.githubusercontent.com/papi144/Uplode-tools-to-github/main/github-upload -o github-upload"
-chmod +x github-upload
-./github-upload -A
-```
-
-### Option 2: Git Bash (No WSL)
-```powershell
-# Download using PowerShell
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/papi144/Uplode-tools-to-github/main/github-upload" -OutFile "github-upload"
-
-# Or use curl (from Git for Windows)
-curl -L https://raw.githubusercontent.com/papi144/Uplode-tools-to-github/main/github-upload -o github-upload
-
-# Set execute permission
- attrib +x github-upload
-
-# Run
-.\github-upload -A
-```
-
-### Option 3: PowerShell Only
-```powershell
-# Download the script
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/papi144/Uplode-tools-to-github/main/github-upload" -OutFile "github-upload.ps1"
-
-# Edit and run with PowerShell - use curl.exe and bash where needed
-```
-
 ## 📄 License
 
 MIT License - See [LICENSE](LICENSE)
+
+## 🌐 Works On
+
+| Platform | Status |
+|----------|--------|
+| Linux (all distros) | ✅ |
+| macOS | ✅ |
+| Windows (WSL) | ✅ |
+| Windows (Git Bash) | ✅ |
+| Android (Termux) | ✅ |
+| VPS / Servers | ✅ |
+| GitHub Codespaces | ✅ |
+| GitHub Actions / CI | ✅ |
 
 ## 🤝 Contributing
 
