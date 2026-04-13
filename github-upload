@@ -17,14 +17,24 @@ DEFAULT_CONFIG="$CONFIG_DIR/config"
 ACCOUNTS_DIR="$CONFIG_DIR/accounts"
 MAX_FILE_SIZE=104857600  # 100MB in bytes
 
-# Colors
+# Modern Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
 CYAN='\033[0;36m'
+MAGENTA='\033[0;35m'
+ORANGE='\033[38;5;208m'
+PURPLE='\033[38;5;141m'
 BOLD='\033[1m'
+DIM='\033[2m'
 NC='\033[0m'
+
+# Icons
+CHECK="${GREEN}[+]"
+CROSS="${RED}[x]"
+ARROW="${CYAN}->"
+BULLET="${ORANGE}*"
 
 # ========================
 # HELPER FUNCTIONS
@@ -36,153 +46,11 @@ log() {
     local msg="$*"
     
     case "$type" in
-        info)    [[ "$QUIET" != "true" ]] && echo -e "${BLUE}[INFO]${NC} $msg" ;;
-        success) [[ "$QUIET" != "true" ]] && echo -e "${GREEN}[OK]${NC} $msg" ;;
-        warn)    [[ "$QUIET" != "true" ]] && echo -e "${YELLOW}[WARN]${NC} $msg" ;;
-        error)   echo -e "${RED}[ERROR]${NC} $msg" >&2 ;;
+        info)    [[ "$QUIET" != "true" ]] && echo -e "${CYAN}[i]${NC} $msg" ;;
+        success) [[ "$QUIET" != "true" ]] && echo -e "${GREEN}${CHECK}${NC} $msg" ;;
+        warn)    [[ "$QUIET" != "true" ]] && echo -e "${YELLOW}[!]${NC} $msg" ;;
+        error)   echo -e "${RED}${CROSS}${NC} $msg" >&2 ;;
         quiet)   : ;;  # Silent
-    esac
-}
-
-jq_safe() {
-    local json="$1"
-    local query="$2"
-    if command -v jq > /dev/null 2>&1; then
-        echo "$json" | jq -r "$query" 2>/dev/null || echo ""
-    else
-        if [[ "$query" == ".sha" ]]; then
-            echo "$json" | grep -o '"sha":"[^"]*"' | head -1 | cut -d'"' -f4
-        elif [[ "$query" == ".message" ]]; then
-            echo "$json" | grep -o '"message":"[^"]*"' | head -1 | cut -d'"' -f4
-        elif [[ "$query" == ".login" ]]; then
-            echo "$json" | grep -o '"login":"[^"]*"' | head -1 | cut -d'"' -f4
-        else
-            echo "$json" | grep -o '"name":"[^"]*"' | head -1 | cut -d'"' -f4
-        fi
-    fi
-}
-
-get_json_val() {
-    local json="$1"
-    local key="$2"
-    if command -v jq > /dev/null 2>&1; then
-        echo "$json" | jq -r "$key" 2>/dev/null || echo ""
-    else
-        echo "$json" | grep -o "\"$key\":\"[^\"]*\"" | head -1 | sed "s/.*\"$key\":\"//; s/\"$//"
-    fi
-}
-
- encrypt_config() {
-    local config_file="$1"
-    local password="$2"
-    
-    if [[ ! -f "$config_file" ]]; then
-        return 1
-    fi
-    
-    if command -v openssl > /dev/null 2>&1; then
-        openssl enc -aes-256-cbc -salt -pbkdf2 -pass pass:"$password" -in "$config_file" -out "$config_file.enc" 2>/dev/null
-        mv "$config_file.enc" "$config_file"
-        chmod 600 "$config_file"
-        return 0
-    else
-        log error "openssl not found for encryption"
-        return 1
-    fi
-}
-
-decrypt_config() {
-    local config_file="$1"
-    local password="$2"
-    
-    if [[ ! -f "$config_file" ]]; then
-        return 1
-    fi
-    
-    if command -v openssl > /dev/null 2>&1; then
-        openssl enc -aes-256-cbc -d -pbkdf2 -pass pass:"$password" -in "$config_file" -out "$config_file.tmp" 2>/dev/null
-        if [[ $? -eq 0 ]]; then
-            mv "$config_file.tmp" "$config_file"
-            chmod 600 "$config_file"
-            return 0
-        fi
-        rm -f "$config_file.tmp"
-        return 1
-    else
-        log error "openssl not found for decryption"
-        return 1
-    fi
-}
-
-show_progress() {
-    local current=$1
-    local total=$2
-    local file=$3
-    local percent=$((current * 100 / total))
-    local hashes=$((percent / 2))
-    local spaces=$((50 - hashes))
-    printf "\r[${GREEN}%-${spaces}s${NC}] %3d%% %s" "$(printf '#%.0s' $(seq 1 $hashes) 2>/dev/null || echo -n '')" "$percent" "$file"
-}
-
-get_mime_type() {
-    local file="$1"
-    local ext="${file##*.}"
-    local filename="${file##*/}"
-    
-    # Try file command first
-    if command -v file > /dev/null 2>&1; then
-        local mime
-        mime=$(file -b --mime-type "$file" 2>/dev/null)
-        [[ -n "$mime" && "$mime" != "application/octet-stream" ]] && echo "$mime" && return 0
-    fi
-    
-    # Fallback to extension mapping
-    case "$ext" in
-        apk) echo "application/vnd.android.package-archive" ;;
-        ipa) echo "application/iphone" ;;
-        jar) echo "application/java-archive" ;;
-        zip) echo "application/zip" ;;
-        tar) echo "application/x-tar" ;;
-        gz|tgz) echo "application/gzip" ;;
-        rar) echo "application/x-rar-compressed" ;;
-        7z) echo "application/x-7z-compressed" ;;
-        xz) echo "application/x-xz" ;;
-        pdf) echo "application/pdf" ;;
-        doc) echo "application/msword" ;;
-        docx) echo "application/vnd.openxmlformats-officedocument.wordprocessingml.document" ;;
-        xls) echo "application/vnd.ms-excel" ;;
-        xlsx) echo "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" ;;
-        ppt) echo "application/vnd.ms-powerpoint" ;;
-        pptx) echo "application/vnd.openxmlformats-officedocument.presentationml.presentation" ;;
-        txt|log) echo "text/plain" ;;
-        json) echo "application/json" ;;
-        xml) echo "application/xml" ;;
-        html|htm) echo "text/html" ;;
-        css) echo "text/css" ;;
-        js) echo "application/javascript" ;;
-        sh|bash) echo "application/x-sh" ;;
-        py) echo "text/x-python" ;;
-        java) echo "text/x-java" ;;
-        c|h|cpp) echo "text/x-c" ;;
-        go) echo "text/x-go" ;;
-        rs) echo "text/x-rust" ;;
-        md|markdown) echo "text/markdown" ;;
-        png) echo "image/png" ;;
-        jpg|jpeg) echo "image/jpeg" ;;
-        gif) echo "image/gif" ;;
-        webp) echo "image/webp" ;;
-        svg) echo "image/svg+xml" ;;
-        ico) echo "image/x-icon" ;;
-        bmp) echo "image/bmp" ;;
-        mp3) echo "audio/mpeg" ;;
-        wav) echo "audio/wav" ;;
-        mp4) echo "video/mp4" ;;
-        avi) echo "video/x-msvideo" ;;
-        mkv) echo "video/x-matroska" ;;
-        deb) echo "application/x-deb" ;;
-        rpm) echo "application/x-rpm" ;;
-        dat) echo "application/octet-stream" ;;
-        *) echo "application/octet-stream" ;;
     esac
 }
 
@@ -216,19 +84,7 @@ GITHUB_USERNAME="$user"
 GITHUB_TOKEN="$token"
 EOF
     chmod 600 "$config_file"
-    
-    if command -v openssl > /dev/null 2>&1; then
-        read -rsp "Set encryption password (leave empty to skip): " enc_password
-        if [[ -n "$enc_password" ]]; then
-            encrypt_config "$config_file" "$enc_password"
-            echo -e "${GREEN}✓ Account '$name' saved and encrypted.${NC}"
-        else
-            echo -e "${GREEN}✓ Account '$name' saved.${NC}"
-        fi
-    else
-        openssl_missing="true"
-        echo -e "${GREEN}✓ Account '$name' saved.${NC}"
-    fi
+    echo -e "${GREEN}${CHECK} Account '${name}' saved.${NC}"
 }
 
 list_accounts() {
@@ -262,29 +118,8 @@ load_account() {
     local name="$1"
     unset GITHUB_USERNAME GITHUB_TOKEN 2>/dev/null
     
-    # Priority 1: Environment variables (most secure)
-    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-        return 0
-    fi
-    
-    # Priority 2: System keychain (Linux)
-    if command -v keychain > /dev/null 2>&1; then
-        local key_pass
-        key_pass=$(keychain -q --eval github.token 2>/dev/null)
-        [[ -n "$key_pass" ]] && GITHUB_TOKEN="$key_pass" && return 0
-    fi
-    
-    # Priority 3: Config file
     if [[ -z "$name" ]] || [[ "$name" == "default" ]]; then
         if [[ -f "$DEFAULT_CONFIG" ]]; then
-            # Check if encrypted and decrypt
-            if [[ "$(file -b "$DEFAULT_CONFIG" 2>/dev/null)" == *"AES-256"*"CBC"*"encrypted"* ]] || [[ "$(head -c 20 "$DEFAULT_CONFIG" 2>/dev/null | xxd)" == *"53616c7465715f"* ]]; then
-                read -rsp "Config is encrypted. Enter password: " dec_password
-                if ! decrypt_config "$DEFAULT_CONFIG" "$dec_password"; then
-                    log error "Decryption failed"
-                    return 1
-                fi
-            fi
             # shellcheck disable=SC1090
             source "$DEFAULT_CONFIG"
         fi
@@ -399,13 +234,12 @@ upload_file() {
     local content
     content=$(base64 -w 0 "$file_path" 2>/dev/null || base64 "$file_path")
     
-    # Check if file exists in repo to get SHA
+    # Check if file exists in repo to get SHA using jq
     local sha=""
     local existing_sha
-    local sha_response
-    sha_response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
-        "https://api.github.com/repos/$repo/contents/$repo_path")
-    existing_sha=$(jq_safe "$sha_response" ".sha")
+    existing_sha=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/repos/$repo/contents/$repo_path" | \
+        jq -r '.sha // empty')
     
     if [[ -n "$existing_sha" && "$existing_sha" != "null" ]]; then
         sha="$existing_sha"
@@ -419,34 +253,22 @@ upload_file() {
         "$content" \
         "$([[ -n "$sha" ]] && printf ',"sha":"%s"' "$sha" || printf '')")
     
-    # Upload file directly via API (use temp file for Termux compatibility)
-    local tmpfile
-    tmpfile=$(mktemp)
-    printf '%s' "$json" > "$tmpfile"
-    
-    # Determine upload URL with branch support
-    local api_url="https://api.github.com/repos/$repo/contents/$repo_path"
-    if [[ -n "$TARGET_BRANCH" ]]; then
-        api_url="$api_url?ref=$TARGET_BRANCH"
-    fi
-    
+    # Upload file directly via API
     local response code
     response=$(curl -s -w "\n%{http_code}" -X PUT \
         -H "Authorization: Bearer $GITHUB_TOKEN" \
         -H "Accept: application/vnd.github+json" \
         -H "Content-Type: application/json" \
-        --data-binary "@$tmpfile" \
-        "$api_url")
+        -d "$json" \
+        "https://api.github.com/repos/$repo/contents/$repo_path")
     code=$(echo "$response" | tail -n1)
-    rm -f "$tmpfile"
     
     if [[ "$code" == "200" ]] || [[ "$code" == "201" ]]; then
         log success "Uploaded: $repo_path"
         return 0
     else
         local msg
-        msg=$(jq_safe "$response" ".message")
-        [[ -z "$msg" ]] && msg="Unknown error"
+        msg=$(echo "$response" | jq -r '.message // "Unknown error"')
         log error "Failed: $msg"
         return 1
     fi
@@ -457,40 +279,36 @@ delete_file() {
     local repo_path="$2"
     local commit_msg="${3:-Delete $repo_path}"
     
-    # Get file SHA
+    # Get file SHA using jq
     local sha
-    local sha_response
-    sha_response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
-        "https://api.github.com/repos/$repo/contents/$repo_path")
-    sha=$(jq_safe "$sha_response" ".sha")
+    sha=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/repos/$repo/contents/$repo_path" | \
+        jq -r '.sha // empty')
     
     if [[ -z "$sha" || "$sha" == "null" ]]; then
         log error "File not found: $repo_path"
         return 1
     fi
     
-    # Delete via API (use temp file for Termux compatibility)
-    local tmpfile
-    tmpfile=$(mktemp)
-    printf '{"message":"%s","sha":"%s"}' "$commit_msg" "$sha" > "$tmpfile"
+    # Delete via API
+    local json
+    json=$(printf '{"message":"%s","sha":"%s"}' "$commit_msg" "$sha")
     
     local response code
     response=$(curl -s -w "\n%{http_code}" -X DELETE \
         -H "Authorization: Bearer $GITHUB_TOKEN" \
         -H "Accept: application/vnd.github+json" \
         -H "Content-Type: application/json" \
-        --data-binary "@$tmpfile" \
+        -d "$json" \
         "https://api.github.com/repos/$repo/contents/$repo_path")
     code=$(echo "$response" | tail -n1)
-    rm -f "$tmpfile"
     
     if [[ "$code" == "200" ]] || [[ "$code" == "204" ]]; then
         log success "Deleted: $repo_path"
         return 0
     else
         local msg
-        msg=$(jq_safe "$response" ".message")
-        [[ -z "$msg" ]] && msg="Unknown error"
+        msg=$(echo "$response" | jq -r '.message // "Unknown error"')
         log error "Failed: $msg (HTTP $code)"
         return 1
     fi
@@ -513,10 +331,11 @@ list_files() {
     fi
     
     echo -e "${BOLD}Files in $repo${NC}:"
+    # Parse response - try jq first, then sed
     if command -v jq > /dev/null 2>&1; then
-        echo "$response" | jq -r 'if type == "array" then .[] else . end | .name' 2>/dev/null || echo "$response" | grep -o '"name":"[^"]*"' | cut -d'"' -f4
+        echo "$response" | jq -r 'if type == "array" then .[] else . end | .name' 2>/dev/null || echo "$response" | sed -n 's/.*"name": "\([^"]*\)".*/\1/p'
     else
-        echo "$response" | grep -o '"name":"[^"]*"' | cut -d'"' -f4
+        echo "$response" | sed -n 's/.*"name": "\([^"]*\)".*/\1/p'
     fi
 }
 
@@ -599,18 +418,11 @@ do_upload() {
     # Upload files
     local success=0
     local failed=0
-    local total=${#FILES[@]}
-    local current=0
     
     for file in "${FILES[@]}"; do
-        current=$((current + 1))
         if [[ -f "$file" ]]; then
-            if [[ "$QUIET" != "true" && "$PROGRESS" != "true" ]]; then
-                echo -e "${BLUE}Uploading:${NC} $file"
-            fi
-            
-            if [[ "$PROGRESS" == "true" ]]; then
-                show_progress "$current" "$total" "$file"
+            if [[ "$QUIET" != "true" ]]; then
+                echo -e "${CYAN}${ARROW}${NC} Upload: ${PURPLE}$(basename "$file")${NC}"
             fi
             
             if [[ "$DRY_RUN" == "true" ]]; then
@@ -627,8 +439,6 @@ do_upload() {
             failed=$((failed + 1))
         fi
     done
-    
-    [[ "$PROGRESS" == "true" ]] && echo
     
     # Summary
     echo
@@ -682,135 +492,14 @@ do_list() {
     fi
     
     echo -e "${BOLD}Files in $REPO${NC}:"
-    if command -v jq > /dev/null 2>&1; then
-        echo "$response" | jq -r '.[].name'
-    else
-        echo "$response" | grep -o '"name":"[^"]*"' | cut -d'"' -f4
-    fi
-}
-
-list_repos() {
-    if [[ -f "$DEFAULT_CONFIG" ]]; then
-        source "$DEFAULT_CONFIG"
-    else
-        log error "No account configured. Run -A to add one."
-        exit 1
-    fi
-    
-    local response
-    response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
-        "https://api.github.com/user/repos?per_page=100")
-    
-    if echo "$response" | grep -q '"message"'; then
-        log error "Failed to list repos"
-        exit 1
-    fi
-    
-    echo -e "${BOLD}Your repositories:${NC}"
-    if command -v jq > /dev/null 2>&1; then
-        echo "$response" | jq -r '.[] | "\(.name) (\(.private ? "private" : "public"))"' 2>/dev/null || \
-        echo "$response" | jq -r '.[].name'
-    else
-        echo "$response" | grep -o '"name":"[^"]*"' | cut -d'"' -f4
-    fi
-}
-
-list_branches() {
-    local repo="$1"
-    [[ -z "$repo" ]] && { log error "Repository required. Use -r repo"; exit 1; }
-    
-    if [[ -f "$DEFAULT_CONFIG" ]]; then
-        source "$DEFAULT_CONFIG"
-    else
-        log error "No account configured. Run -A to add one."
-        exit 1
-    fi
-    
-    if [[ "$repo" != */* ]]; then
-        repo="$GITHUB_USERNAME/$repo"
-    fi
-    
-    local response
-    response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
-        "https://api.github.com/repos/$repo/branches")
-    
-    if echo "$response" | grep -q '"message"'; then
-        log error "Failed to list branches"
-        exit 1
-    fi
-    
-    echo -e "${BOLD}Branches in $repo${NC}:"
-    if command -v jq > /dev/null 2>&1; then
-        echo "$response" | jq -r '.[].name'
-    else
-        echo "$response" | grep -o '"name":"[^"]*"' | cut -d'"' -f4
-    fi
-}
-
-create_branch() {
-    local repo="$1"
-    local branch_name="$2"
-    local from_branch="${3:-main}"
-    
-    [[ -z "$repo" ]] && { log error "Repository required. Use -r repo"; exit 1; }
-    [[ -z "$branch_name" ]] && { log error "Branch name required. Use -b branch"; exit 1; }
-    
-    if [[ -f "$DEFAULT_CONFIG" ]]; then
-        source "$DEFAULT_CONFIG"
-    else
-        log error "No account configured. Run -A to add one."
-        exit 1
-    fi
-    
-    if [[ "$repo" != */* ]]; then
-        repo="$GITHUB_USERNAME/$repo"
-    fi
-    
-    local ref_response
-    ref_response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
-        "https://api.github.com/repos/$repo/git/refs/heads/$from_branch")
-    
-    local sha
-    sha=$(jq_safe "$ref_response" ".object.sha")
-    
-    if [[ -z "$sha" ]]; then
-        log error "Source branch '$from_branch' not found"
-        exit 1
-    fi
-    
-    local json
-    json=$(printf '{"ref":"refs/heads/%s","sha":"%s"}' "$branch_name" "$sha")
-    
-    local tmpfile
-    tmpfile=$(mktemp)
-    printf '%s' "$json" > "$tmpfile"
-    
-    local response code
-    response=$(curl -s -w "\n%{http_code}" -X POST \
-        -H "Authorization: Bearer $GITHUB_TOKEN" \
-        -H "Accept: application/vnd.github+json" \
-        --data-binary "@$tmpfile" \
-        "https://api.github.com/repos/$repo/git/refs")
-    code=$(echo "$response" | tail -n1)
-    rm -f "$tmpfile"
-    
-    if [[ "$code" == "201" ]]; then
-        log success "Branch created: $branch_name (from $from_branch)"
-        return 0
-    else
-        local msg
-        msg=$(jq_safe "$response" ".message")
-        [[ -z "$msg" ]] && msg="Failed to create branch"
-        log error "$msg (HTTP $code)"
-        return 1
-    fi
+    echo "$response" | jq -r '.[].name' 2>/dev/null || echo "$response" | sed -n 's/.*"name": "\([^"]*\)".*/\1/p'
 }
 
 show_help() {
     cat << 'HELPEOF'
 ╔══════════════════════════════════════════════════════════════════╗
-║              GitHub Direct Upload Tool v2.0                      ║
-║          Upload files to GitHub WITHOUT cloning!                 ║
+║        ${CYAN}GitHub Direct Upload Tool${NC} v2.5                         ║
+║        ${MAGENTA}Upload files to GitHub ${DIM}WITHOUT cloning!${NC}              ║
 ╚══════════════════════════════════════════════════════════════════╝
 
 USAGE:
@@ -828,21 +517,14 @@ OPTIONS:
     -a, --account NAME       Use specific account
     --list-accounts          Show saved accounts
         
---delete PATH            Delete a file from repository
-        --list [PATH]            List files in repository
-        --list-repos            List your repositories
-        --list-branches        List branches in repository
-        -b, --branch NAME     Create new branch
-        --target-branch      Upload to specific branch
+    --delete PATH            Delete a file from repository
+    --list [PATH]            List files in repository
         
     -q, --quiet              Quiet mode (minimal output)
-        -P, --progress          Show progress bar for uploads
-        -n, --dry-run            Show what would be uploaded
+    -n, --dry-run            Show what would be uploaded
     -h, --help               Show this help
         
     --clear                  Clear saved credentials
-        --encrypt PASSWORD    Encrypt config file
-        --decrypt PASSWORD    Decrypt config file
 
 EXAMPLES:
     # Upload a file
@@ -868,9 +550,6 @@ EXAMPLES:
     
     # List files in repo
     github-upload -r my-repo --list
-    
-    # List your repositories
-    github-upload --list-repos
     
     # Add account
     github-upload -A
@@ -901,21 +580,12 @@ FILES=()
 SPECIFIED_ACCOUNT=""
 DELETE_FILE=""
 DO_LIST="false"
-LIST_REPOS="false"
-LIST_BRANCHES="false"
-CREATE_BRANCH="false"
 LIST_PATH=""
 FILE_PATH=""
-BRANCH_NAME=""
-SOURCE_BRANCH="main"
-TARGET_BRANCH=""
 DRY_RUN="false"
 QUIET="false"
-PROGRESS="false"
 SHOW_ACCOUNTS="false"
 ADD_ACCOUNT=""
-ENCRYPT_CONFIG=""
-DECRYPT_CONFIG=""
 CLEAR_CREDS="false"
 OVERWRITE="false"
 
@@ -970,33 +640,8 @@ while [[ $# -gt 0 ]]; do
             fi
             shift
             ;;
-        --list-repos)
-            LIST_REPOS="true"
-            shift
-            ;;
-        --list-branches)
-            LIST_BRANCHES="true"
-            shift
-            ;;
-        -b|--branch)
-            CREATE_BRANCH="true"
-            BRANCH_NAME="$2"
-            shift 2
-            ;;
-        --source-branch)
-            SOURCE_BRANCH="$2"
-            shift 2
-            ;;
-        --target-branch)
-            TARGET_BRANCH="$2"
-            shift 2
-            ;;
         -q|--quiet)
             QUIET="true"
-            shift
-            ;;
-        -P|--progress)
-            PROGRESS="true"
             shift
             ;;
         -n|--dry-run)
@@ -1014,14 +659,6 @@ while [[ $# -gt 0 ]]; do
         --overwrite)
             OVERWRITE="true"
             shift
-            ;;
-        --encrypt)
-            ENCRYPT_CONFIG="$2"
-            shift 2
-            ;;
-        --decrypt)
-            DECRYPT_CONFIG="$2"
-            shift 2
             ;;
         -*)
             log error "Unknown option: $1"
@@ -1059,19 +696,7 @@ fi
 # Handle --add-account
 if [[ -n "$ADD_ACCOUNT" ]]; then
     add_account "$ADD_ACCOUNT"
-    exit $?
-fi
-
-# Handle --encrypt
-if [[ -n "$ENCRYPT_CONFIG" ]]; then
-    encrypt_config "$DEFAULT_CONFIG" "$ENCRYPT_CONFIG"
-    exit $?
-fi
-
-# Handle --decrypt
-if [[ -n "$DECRYPT_CONFIG" ]]; then
-    decrypt_config "$DEFAULT_CONFIG" "$DECRYPT_CONFIG"
-    exit $?
+    exit 0
 fi
 
 # Handle --delete
@@ -1083,24 +708,6 @@ fi
 # Handle --list
 if [[ "$DO_LIST" == "true" ]]; then
     do_list
-    exit $?
-fi
-
-# Handle --list-repos
-if [[ "$LIST_REPOS" == "true" ]]; then
-    list_repos
-    exit $?
-fi
-
-# Handle --list-branches
-if [[ "$LIST_BRANCHES" == "true" ]]; then
-    list_branches "$REPO"
-    exit $?
-fi
-
-# Handle create branch
-if [[ "$CREATE_BRANCH" == "true" ]]; then
-    create_branch "$REPO" "$BRANCH_NAME" "$SOURCE_BRANCH"
     exit $?
 fi
 
