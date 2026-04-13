@@ -496,10 +496,10 @@ do_list() {
 }
 
 show_help() {
-    cat << 'HELPEOF'
+    cat << HELPEOF
 ╔══════════════════════════════════════════════════════════════════╗
-║        ${CYAN}GitHub Direct Upload Tool${NC} v2.5                         ║
-║        ${MAGENTA}Upload files to GitHub ${DIM}WITHOUT cloning!${NC}              ║
+║        GitHub Direct Upload Tool v2.5                         ║
+║        Upload files to GitHub WITHOUT cloning!               ║
 ╚══════════════════════════════════════════════════════════════════╝
 
 USAGE:
