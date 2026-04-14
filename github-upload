@@ -698,31 +698,68 @@ select_account() {
 }
 
 launch_tui() {
-    echo -e "${BOLD}Launching TUI (graph view)...${NC}"
+    select_account || return
+    
+    echo -e "${BOLD}${CYAN}Fetching repositories...${NC}"
     echo
     
-    # Check if TUI script exists
-    local tui_script="$(dirname "$0")/github-upload-tui.py"
+    local response
+    response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/user/repos?per_page=100")
     
-    if [[ ! -f "$tui_script" ]]; then
-        log error "TUI script not found: $tui_script"
+    if echo "$response" | grep -q '"message"'; then
+        log error "Failed to fetch repositories"
         return
     fi
     
-    # Check if python3 is available
-    if ! command -v python3 > /dev/null 2>&1; then
-        log error "Python3 not found. Install python3 to use TUI."
-        return
-    fi
+    # Show repos
+    local repo_count=0
+    echo -e "${BOLD}${MAGENTA}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}${MAGENTA}║        📁 REPOSITORIES FOR $GITHUB_USERNAME              ║${NC}"
+    echo -e "${BOLD}${MAGENTA}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo
     
-    # Check for requests library
-    if ! python3 -c "import requests" 2>/dev/null; then
-        echo -e "${YELLOW}Installing required library: requests${NC}"
-        pip install requests 2>/dev/null || pip3 install requests 2>/dev/null || { log error "Failed to install requests"; return; }
-    fi
+    # Parse each repo
+    local repo_names=()
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && repo_names+=("$line")
+    done < <(echo "$response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//')
     
-    # Run the TUI
-    python3 "$tui_script"
+    for repo_name in "${repo_names[@]}"; do
+        repo_count=$((repo_count + 1))
+        echo -e "${GREEN}┌─ 📂 $repo_name${NC}"
+        
+        # Get files in this repo
+        local files_response
+        files_response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/repos/$GITHUB_USERNAME/$repo_name/contents")
+        
+        if echo "$files_response" | grep -q '"name"'; then
+            local file_count=0
+            local file_names=()
+            while IFS= read -r file; do
+                [[ -n "$file" ]] && file_names+=("$file") && file_count=$((file_count + 1))
+            done < <(echo "$files_response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//')
+            
+            if [[ $file_count -eq 0 ]]; then
+                echo -e "${DIM}│   (empty)${NC}"
+            else
+                for i in "${!file_names[@]}"; do
+                    if [[ $i -lt 5 ]]; then
+                        if [[ $i -eq $((file_count - 1)) ]] || [[ $i -eq 4 ]]; then
+                            echo -e "${DIM}└── 📄 ${file_names[$i]}${NC}"
+                        else
+                            echo -e "${DIM}├── 📄 ${file_names[$i]}${NC}"
+                        fi
+                    fi
+                done
+                if [[ $file_count -gt 5 ]]; then
+                    echo -e "${YELLOW}└── ... and $((file_count - 5)) more files${NC}"
+                fi
+            fi
+        fi
+        echo "│"
+    done
+    
+    echo -e "${BOLD}${GREEN}Total: $repo_count repositories${NC}"
 }
 
 show_interactive_menu() {
