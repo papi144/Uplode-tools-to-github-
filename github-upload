@@ -3,8 +3,7 @@
 # GitHub Direct Upload Tool
 #
 # Upload files directly to GitHub via API (NO CLONING NEEDED!)
-# Features: No clone, 100MB support, quiet mode, fixed help, delete files
-# Fixed: All 19 bugs patched (crashes, wrong behavior, logic, portability)
+# Features: No clone, 100MB support, quiet mode, help, delete files, multi-account
 ################################################################################
 
 set -euo pipefail

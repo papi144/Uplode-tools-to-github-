@@ -2,7 +2,7 @@
 
 > Upload files to GitHub **directly via API** - No git clone needed!
 
-A powerful bash script that uploads files to GitHub repositories using the GitHub API. Fast, simple, and works on any system with `curl` and `jq`.
+A powerful bash script that uploads files to GitHub repositories using the GitHub API. Fast, simple, and works on any system with `curl`.
 
 ## ✨ Features
 
@@ -12,6 +12,9 @@ A powerful bash script that uploads files to GitHub repositories using the GitHu
 - 🔄 **Update Files** - Automatically detects and updates existing files
 - 🗑️ **Delete Files** - Remove files from repositories
 - 📋 **List Files** - View files in any repository
+- 🌳 **Graph/Tree View** - Visual representation of repos and files
+- 🔢 **Account Selection** - Numbered menu for easy account switching
+- 📄 **File Type Icons** - Different emojis for different file types
 - 🔇 **Quiet Mode** - Minimal output for scripting
 - 💾 **Multi-Account** - Support for multiple GitHub accounts
 - 🔒 **Secure** - Credentials stored with proper permissions
@@ -21,7 +24,7 @@ A powerful bash script that uploads files to GitHub repositories using the GitHu
 
 - `bash` (4.0+)
 - `curl`
-- `jq`
+- `jq` (optional - works without it)
 - `GitHub Personal Access Token` with `repo` scope
 
 ## 🔧 Installation
@@ -30,11 +33,11 @@ A powerful bash script that uploads files to GitHub repositories using the GitHu
 
 ```bash
 # Option 1: Download with curl
-curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload
+curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github/main/github-upload
 
 # Option 2: Clone with git
-git clone https://github.com/papi144/Uplode-tools-to-github-.git
-cd Uplode-tools-to-github-
+git clone https://github.com/papi144/Uplode-tools-to-github.git
+cd Uplode-tools-to-github
 
 # Make it executable
 chmod +x github-upload
@@ -50,20 +53,14 @@ source ~/.bashrc
 
 ```bash
 # Option 1: Download with curl
-curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-toGithub-/main/github-upload
+curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github/main/github-upload
 
 # Option 2: Clone with git
-git clone https://github.com/papi144/Uplode-tools-to-github-.git
-cd Uplode-tools-to-github-
+git clone https://github.com/papi144/Uplode-tools-to-github.git
+cd Uplode-tools-to-github
 
 # Make it executable
 chmod +x github-upload
-
-# Optional: Install to PATH
-mkdir -p ~/bin
-mv github-upload ~/bin/
-echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
 ```
 
 ### Android (Termux)
@@ -72,31 +69,24 @@ source ~/.bashrc
 # Install dependencies
 pkg install curl jq git
 
-# Option 1: Download with curl
-curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload
+# Download
+curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github/main/github-upload
 
-# Option 2: Clone with git
-git clone https://github.com/papi144/Uplode-tools-to-github-.git
-cd Uplode-tools-to-github-
+# Or clone
+git clone https://github.com/papi144/Uplode-tools-to-github.git
+cd Uplode-tools-to-github
 
-# Make it executable
 chmod +x github-upload
 ```
 
-### Windows (WSL) - Recommended
+### Windows (WSL)
 
 ```bash
 # Install WSL if not already
 wsl --install
 
-# Then in WSL terminal:
-# Option 1: Download with curl
-curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload
-
-# Option 2: Clone with git
-git clone https://github.com/papi144/Uplode-tools-to-github-.git
-cd Uplode-tools-to-github-
-
+# Then in WSL:
+curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github/main/github-upload
 chmod +x github-upload
 ./github-upload -A
 ```
@@ -104,38 +94,9 @@ chmod +x github-upload
 ### Windows (Git Bash)
 
 ```bash
-# Download using curl
-curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload
-
-# Make it executable
+curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github/main/github-upload
 chmod +x github-upload
-
-# Run
 ./github-upload -A
-```
-
-### Windows (PowerShell)
-
-```powershell
-# Download the script
-Invoke-WebRequest -Uri "https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload" -OutFile "github-upload"
-```
-
-### From Source (git clone)
-
-```bash
-# Clone the repository
-git clone https://github.com/papi144/Uplode-tools-to-github-.git
-cd Uplode-tools-to-github-
-
-# Make it executable
-chmod +x github-upload
-
-# Run
-./github-upload -A
-
-# Optional: Install to PATH
-sudo mv github-upload /usr/local/bin/
 ```
 
 ## 🔐 Setup
@@ -160,37 +121,28 @@ echo "GITHUB_TOKEN=ghp_yourtoken" >> ~/.config/github-upload/config
 chmod 600 ~/.config/github-upload/config
 ```
 
-### Secure Token Storage
-
-#### Option 1: Environment Variable (Recommended)
-```bash
-# Add to ~/.bashrc or ~/.profile
-export GITHUB_TOKEN="ghp_yourtoken"
-export GITHUB_USERNAME="yourusername"
-
-# Source it
-source ~/.bashrc
-```
-
-#### Option 2: System Keychain (Linux)
-```bash
-# Install keychain
-apt install keychain
-
-# Add token
-keychain --eval github.token ghp_yourtoken >> ~/.bashrc
-
-# Add to ~/.bashrc
-eval $(keychain --eval github.token)
-```
-
-#### Option 3: macOS Keychain
-```bash
-# Store in Keychain
-security add-internet-password -s github.com -a username -w "ghp_yourtoken"
-```
-
 ## 🚀 Usage
+
+### Interactive Menu (No Arguments)
+
+```bash
+# Run without arguments to see interactive menu
+./github-upload
+```
+
+Menu options:
+1. Add new account
+2. List available accounts
+3. Remove account
+4. Switch default account
+5. Upload file(s)
+6. List files in repository
+7. Create new repository
+8. List my repositories
+9. List repos for specific account
+10. Delete file from repository
+11. **See graph (tree view)** ← Shows repos and files visually!
+12. Exit
 
 ### Basic Commands
 
@@ -198,201 +150,114 @@ security add-internet-password -s github.com -a username -w "ghp_yourtoken"
 # Upload a file (creates repo if needed)
 github-upload -r my-repo -c myfile.apk
 
-# Upload to existing repo
-github-upload -r username/my-repo myfile.apk
-
 # Upload with custom message
 github-upload -r my-repo -m "Version 2.0" app.apk
 
+# Upload to specific path
+github-upload -r my-repo -f "apps/android/app.apk" app.apk
+
 # Upload multiple files
-github-upload -r my-repo file1.txt file2.png file3.pdf
+github-upload -r my-repo app.apk icon.png readme.txt
 
-# Upload with wildcard
-github-upload -r my-repo '*.apk'
-```
+# Create private repo and upload
+github-upload -r my-repo -c -p -d "My app" app.apk
 
-### Create Repository Options
-
-```bash
-# Create public repo
-github-upload -r my-app -c myfile.apk
-
-# Create private repo
-github-upload -r my-app --private -c myfile.apk
-
-# Create with description
-github-upload -r my-app -c -d "My App Description" myfile.apk
-```
-
-### File Management
-
-```bash
-# Upload to custom path in repo
-github-upload -r my-repo -f "apps/v2/app.apk" app.apk
+# Delete a file
+github-upload -r my-repo --delete old-file.txt
 
 # List files in repo
 github-upload -r my-repo --list
 
-# List files in subfolder
-github-upload -r my-repo --list folder/subfolder
+# List your repositories
+github-upload --list-repos
 
-# Delete a file
-github-upload -r my-repo --delete oldfile.txt
-
-# Delete file with custom message
-github-upload -r my-repo --delete oldfile.txt -m "Remove deprecated file"
-```
-
-### Advanced Options
-
-```bash
-# Quiet mode (minimal output)
-github-upload -r my-repo -q *.apk
-
-# Dry run (preview what would be uploaded)
-github-upload -r my-repo -n *.apk
+# Add new account
+github-upload -A
 
 # Use specific account
-github-upload -a work -r company/repo file.zip
-
-# Update existing file
-github-upload -r my-repo -m "Updated" myfile.apk
+github-upload -a work -r company/repo file.txt
 ```
 
-## 📝 Command Reference
+### Graph/Tree View (Option 11)
+
+```bash
+# Run interactively, select option 11
+./github-upload
+# Then select 11 to see all repos with file tree!
+```
+
+Shows:
+```
+╔══════════════════════════════════════════════════════════╗
+║        📁 REPOSITORIES FOR papi144              ║
+╚══════════════════════════════════════════════════════════╝
+
+┌─ 📂 my-repo
+│   ├── 🐍 main.py
+│   ├── 📄 README.md
+│   └── 📄 requirements.txt
+│
+┌─ 📂 another-repo
+│   ├── 📦 app.apk
+│   └── 🖼️ icon.png
+│
+Total: 2 repositories
+```
+
+### File Type Emojis
+
+Different files show different icons:
+- 📦 APK, IPA, Linux packages
+- 🐍 Python (.py)
+- 🖼️ Images (.png, .jpg, .gif)
+- 📄 Text files
+- 🗜️ Archives (.zip, .rar)
+- 🎵 Audio
+- 🎬 Video
+
+## 📋 All Options
 
 | Option | Description |
 |--------|-------------|
-| `-r, --repo REPO` | Repository name (`repo` or `user/repo`) |
-| `-c, --create` | Create repository if it doesn't exist |
-| `-p, --private` | Make new repository private |
-| `-d, --description TEXT` | Repository description (with `-c`) |
-| `-m, --message TEXT` | Commit message |
-| `-f, --file-path PATH` | Upload to custom path in repo |
-| `-A, --add-account` | Add a new GitHub account |
-| `-a, --account NAME` | Use specific account |
-| `--list-accounts` | List all saved accounts |
-| `--list [PATH]` | List files in repository |
+| `-r, --repo` | Repository name |
+| `-c, --create` | Create repository if not exists |
+| `-p, --private` | Make repository private |
+| `-d, --description` | Repository description |
+| `-m, --message` | Commit message |
+| `-f, --file-path` | Upload to specific path |
+| `-A, --add-account` | Add new account |
+| `-a, --account` | Use specific account |
+| `--list-accounts` | Show saved accounts |
+| `--delete` | Delete file from repo |
+| `--list` | List files in repo |
 | `--list-repos` | List your repositories |
-| `--list-branches` | List branches in repository |
-| `-b, --branch NAME` | Create new branch |
-| `--delete PATH` | Delete a file from repository |
-| `-q, --quiet` | Quiet mode (minimal output) |
+| `--list-branches` | List branches in repo |
+| `-b, --branch` | Create new branch |
+| `-q, --quiet` | Quiet mode |
+| `-P, --progress` | Show progress bar |
 | `-n, --dry-run` | Show what would be uploaded |
-| `--clear` | Clear saved credentials |
 | `-h, --help` | Show help |
-
-## 📁 Configuration
-
-Credentials are stored in:
-- **Default account:** `~/.config/github-upload/config`
-- **Additional accounts:** `~/.config/github-upload/accounts/NAME/config`
-
-Permissions are set to `600` (owner read/write only) for security.
-
-## 💡 Examples
-
-### Upload an APK
-
-```bash
-github-upload -r my-android-app -c -m "v1.0.0 release" app.apk
-```
-
-### Upload Multiple Files
-
-```bash
-github-upload -r backup-repo -m "Daily backup" file1.zip file2.tar
-```
-
-### Update App with New Version
-
-```bash
-github-upload -r my-app -m "Updated to v2.0" app.apk
-```
-
-### Upload All APKs from Folder
-
-```bash
-github-upload -r android-apps -c -m "All apps" ./downloads/*.apk
-```
-
-### Organize Files with Paths
-
-```bash
-github-upload -r my-repo \
-  -f "images/icons/app.png" icon.png \
-  -f "images/screenshots/s1.png" screenshot1.png \
-  -f "images/screenshots/s2.png" screenshot2.png
-```
-
-### Backup Configuration
-
-```bash
-github-upload -r my-configs -c -d "System configurations" \
-  ~/.ssh/config \
-  ~/.gitconfig \
-  .bashrc
-```
-
-### Delete Old Files
-
-```bash
-# Delete single file
-github-upload -r my-repo --delete old-version.apk
-
-# Delete multiple files
-github-upload -r my-repo --delete temp1.tmp
-github-upload -r my-repo --delete temp2.tmp
-```
-
-### List Your Repositories
-
-```bash
-github-upload --list-repos
-```
-
-### List Branches
-
-```bash
-# List branches in a repository
-github-upload -r my-repo --list-branches
-```
-
-### Create Branch
-
-```bash
-# Create new branch from main
-github-upload -r my-repo -b feature-branch
-
-# Create branch from specific branch
-github-upload -r my-repo -b dev-branch --source-branch develop
-```
+| `--clear` | Clear saved credentials |
 
 ## 🔍 Troubleshooting
 
 ### "No account configured"
-
 Run `github-upload -A` to add your GitHub account.
 
 ### "Repository not found"
-
 Use `-c` flag to create the repository:
 ```bash
 github-upload -r new-repo -c myfile.apk
 ```
 
 ### "File too large"
-
-Maximum file size is 100MB. For larger files, use Git LFS or split the file.
+Maximum file size is 100MB.
 
 ### "Permission denied"
-
-Check your token has `repo` scope. Generate a new token at:
-https://github.com/settings/tokens
+Check your token has `repo` scope.
 
 ### "Invalid token"
-
-Verify your token is correct. Run:
+Verify your token is correct:
 ```bash
 github-upload --list-accounts
 ```
@@ -420,12 +285,12 @@ MIT License - See [LICENSE](LICENSE)
 
 ## 🤝 Contributing
 
-Pull requests welcome! Please read contributing guidelines first.
+Pull requests welcome!
 
 ## 📧 Contact
 
 - GitHub: [@papi144](https://github.com/papi144)
-- Issues: [Open an issue](https://github.com/papi144/Uplode-tools-to-github-/issues)
+- Issues: [Open an issue](https://github.com/papi144/Uplode-tools-to-github/issues)
 
 ---
 
