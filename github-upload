@@ -578,10 +578,197 @@ do_list() {
     echo "$response" | jq -r '.[].name' 2>/dev/null || echo "$response" | sed -n 's/.*"name": "\([^"]*\)".*/\1/p'
 }
 
+show_interactive_menu() {
+    clear
+    echo -e "${MAGENTA}╔══════════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${MAGENTA}║${NC}        ${BOLD}GitHub Direct Upload Tool v2.6${NC}${MAGENTA}                         ║${NC}"
+    echo -e "${MAGENTA}║${NC}        Upload files to GitHub WITHOUT cloning!               ║${NC}"
+    echo -e "${MAGENTA}╚══════════════════════════════════════════════════════════════════╝${NC}"
+    echo
+    
+    local has_account=false
+    local current_account=""
+    
+    if [[ -f "$DEFAULT_CONFIG" ]]; then
+        current_account=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"' || echo "unknown")
+        has_account=true
+    fi
+    
+    if [[ "$has_account" == "true" ]]; then
+        echo -e "${GREEN}${CHECK} Logged in as: ${BOLD}$current_account${NC}"
+        echo
+    else
+        echo -e "${YELLOW}[!]${NC} No account configured"
+        echo
+    fi
+    
+    echo -e "${BOLD}Choose an option:${NC}"
+    echo
+    echo -e "  ${CYAN}1)${NC}  Add new account"
+    echo -e "  ${CYAN}2)${NC}  List available accounts"
+    echo -e "  ${CYAN}3)${NC}  Remove account"
+    echo -e "  ${CYAN}4)${NC}  Upload file(s)"
+    echo -e "  ${CYAN}5)${NC}  List files in repository"
+    echo -e "  ${CYAN}6)${NC}  Create new repository"
+    echo -e "  ${CYAN}7)${NC}  List my repositories"
+    echo -e "  ${CYAN}8)${NC}  Delete file from repository"
+    echo -e "  ${CYAN}9)${NC}  Exit"
+    echo
+    
+    read -rp "Enter your choice [1-9]: " choice
+    echo
+    
+    case "$choice" in
+        1)
+            add_account ""
+            ;;
+        2)
+            list_accounts
+            ;;
+        3)
+            remove_account
+            ;;
+        4)
+            interactive_upload
+            ;;
+        5)
+            interactive_list
+            ;;
+        6)
+            interactive_create_repo
+            ;;
+        7)
+            handle_list_repos
+            ;;
+        8)
+            interactive_delete
+            ;;
+        9)
+            echo -e "${GREEN}Goodbye!${NC}"
+            exit 0
+            ;;
+        *)
+            log error "Invalid option"
+            ;;
+    esac
+    
+    echo
+    read -rp "Press Enter to continue..." 
+    show_interactive_menu
+}
+
+remove_account() {
+    echo -e "${BOLD}Available accounts:${NC}"
+    local accounts=()
+    local count=0
+    
+    if [[ -f "$DEFAULT_CONFIG" ]]; then
+        echo -e "  ${CYAN}default${NC}: $(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')"
+        accounts+=("default")
+        count=$((count + 1))
+    fi
+    
+    if [[ -d "$ACCOUNTS_DIR" ]]; then
+        for cfg in "$ACCOUNTS_DIR"/*/config; do
+            [[ -f "$cfg" ]] || continue
+            local acc
+            acc=$(basename "$(dirname "$cfg")")
+            local u
+            u=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
+            echo -e "  ${CYAN}$acc${NC}: $u"
+            accounts+=("$acc")
+            count=$((count + 1))
+        done
+    fi
+    
+    if [[ $count -eq 0 ]]; then
+        log error "No accounts to remove"
+        return
+    fi
+    
+    echo
+    read -rp "Enter account name to remove: " acc_name
+    
+    if [[ -z "$acc_name" ]]; then
+        log error "Account name required"
+        return
+    fi
+    
+    if [[ "$acc_name" == "default" ]]; then
+        if [[ -f "$DEFAULT_CONFIG" ]]; then
+            rm -f "$DEFAULT_CONFIG"
+            log success "Removed default account"
+        else
+            log error "Default account not found"
+        fi
+    else
+        if [[ -d "$ACCOUNTS_DIR/$acc_name" ]]; then
+            rm -rf "$ACCOUNTS_DIR/$acc_name"
+            log success "Removed account: $acc_name"
+        else
+            log error "Account not found: $acc_name"
+        fi
+    fi
+}
+
+interactive_upload() {
+    read -rp "Repository (user/repo or just repo name): " repo
+    [[ -z "$repo" ]] && { log error "Repository required"; return; }
+    
+    read -rp "File path to upload: " file_path
+    [[ -z "$file_path" ]] && { log error "File path required"; return; }
+    
+    if [[ ! -f "$file_path" ]]; then
+        log error "File not found: $file_path"
+        return
+    fi
+    
+    read -rp "Commit message (optional): " commit_msg
+    [[ -z "$commit_msg" ]] && commit_msg="Upload $(basename "$file_path")"
+    
+    ./github-upload -r "$repo" -m "$commit_msg" "$file_path"
+}
+
+interactive_list() {
+    read -rp "Repository (user/repo or just repo name): " repo
+    [[ -z "$repo" ]] && { log error "Repository required"; return; }
+    
+    ./github-upload -r "$repo" --list
+}
+
+interactive_create_repo() {
+    read -rp "Repository name: " repo_name
+    [[ -z "$repo_name" ]] && { log error "Repository name required"; return; }
+    
+    read -rp "Description (optional): " description
+    
+    read -rp "Make private? (y/N): " is_private
+    [[ "$is_private" =~ ^[Yy]$ ]] && private_flag="-p" || private_flag=""
+    
+    if [[ -n "$description" ]]; then
+        ./github-upload -r "$repo_name" -c $private_flag -d "$description" README.md
+    else
+        ./github-upload -r "$repo_name" -c $private_flag README.md
+    fi
+}
+
+interactive_delete() {
+    read -rp "Repository (user/repo or just repo name): " repo
+    [[ -z "$repo" ]] && { log error "Repository required"; return; }
+    
+    read -rp "File path to delete: " file_path
+    [[ -z "$file_path" ]] && { log error "File path required"; return; }
+    
+    read -rp "Commit message (optional): " commit_msg
+    [[ -z "$commit_msg" ]] && commit_msg="Delete $file_path"
+    
+    ./github-upload -r "$repo" --delete "$file_path" -m "$commit_msg"
+}
+
 show_help() {
     cat << HELPEOF
 ╔══════════════════════════════════════════════════════════════════╗
-║        GitHub Direct Upload Tool v2.5                         ║
+║        GitHub Direct Upload Tool v2.6                         ║
 ║        Upload files to GitHub WITHOUT cloning!               ║
 ╚══════════════════════════════════════════════════════════════════╝
 
@@ -687,6 +874,7 @@ ENCRYPT_CONFIG=""
 DECRYPT_CONFIG=""
 CLEAR_CREDS="false"
 OVERWRITE="false"
+INTERACTIVE="false"
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -792,6 +980,10 @@ while [[ $# -gt 0 ]]; do
             OVERWRITE="true"
             shift
             ;;
+        -i|--interactive)
+            INTERACTIVE="true"
+            shift
+            ;;
         -*)
             log error "Unknown option: $1"
             exit 1
@@ -811,6 +1003,16 @@ done
 for cmd in curl stat; do
     command -v "$cmd" > /dev/null || { log error "Required command '$cmd' not found"; exit 1; }
 done
+
+# Handle interactive mode
+if [[ "$INTERACTIVE" == "true" ]]; then
+    show_interactive_menu
+fi
+
+# If no arguments provided, show interactive menu
+if [[ $# -eq 0 ]]; then
+    show_interactive_menu
+fi
 
 # Handle --clear
 if [[ "$CLEAR_CREDS" == "true" ]]; then
