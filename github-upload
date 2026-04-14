@@ -154,10 +154,18 @@ list_accounts() {
     echo "Configured accounts:"
     local count=0
     
+    # Load default account to check which one is active
+    . "$DEFAULT_CONFIG" 2>/dev/null
+    local current_user="${GITHUB_USERNAME:-}"
+    
     if [[ -f "$DEFAULT_CONFIG" ]]; then
         local user
         user=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" | cut -d= -f2- | tr -d '"' || echo "unknown")
-        echo -e "  ${BLUE}default${NC}: $user"
+        if [[ "$user" == "$current_user" ]]; then
+            echo -e "  ${BLUE}default${NC}: $user ${GREEN}(you are here)${NC}"
+        else
+            echo -e "  ${BLUE}default${NC}: $user"
+        fi
         count=$((count + 1))
     fi
     
@@ -168,7 +176,11 @@ list_accounts() {
             acc=$(basename "$(dirname "$cfg")")
             local u
             u=$(grep '^GITHUB_USERNAME=' "$cfg" | cut -d= -f2- | tr -d '"' || echo "unknown")
-            echo -e "  ${BLUE}$acc${NC}: $u"
+            if [[ "$u" == "$current_user" ]]; then
+                echo -e "  ${BLUE}$acc${NC}: $u ${GREEN}(you are here)${NC}"
+            else
+                echo -e "  ${BLUE}$acc${NC}: $u"
+            fi
             count=$((count + 1))
         done
     fi
@@ -598,8 +610,9 @@ show_interactive_menu() {
     local current_account=""
     
     if [[ -f "$DEFAULT_CONFIG" ]]; then
-        current_account=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"' || echo "unknown")
-        has_account=true
+        . "$DEFAULT_CONFIG" 2>/dev/null
+        current_account="${GITHUB_USERNAME:-}"
+        [[ -n "$current_account" ]] && has_account=true
     fi
     
     if [[ "$has_account" == "true" ]]; then
