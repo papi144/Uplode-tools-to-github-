@@ -630,7 +630,7 @@ select_account() {
         count=$((count + 1))
     fi
     
-    # Add additional accounts, skip if same as default
+    # Add additional accounts, skip if same as default or no username
     if [[ -d "$ACCOUNTS_DIR" ]]; then
         for cfg in "$ACCOUNTS_DIR"/*/config; do
             [[ -f "$cfg" ]] || continue
@@ -638,8 +638,8 @@ select_account() {
             acc=$(basename "$(dirname "$cfg")")
             local u
             u=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
-            # Skip if empty username or same as default user
-            [[ -z "$u" ]] && u="(no username)"
+            # Skip if same as default user or empty username
+            [[ -z "$u" ]] && continue
             [[ "$u" == "$default_user" ]] && continue
             echo -e "  ${CYAN}$count)${NC} $acc: $u"
             accounts+=("$acc|$u")
@@ -663,12 +663,6 @@ select_account() {
     local selected="${accounts[$((choice - 1))]}"
     local acc_name="${selected%|*}"
     local acc_user="${selected##*|}"
-    
-    # Skip accounts without valid username
-    if [[ -z "$acc_user" ]] || [[ "$acc_user" == "(no username)" ]]; then
-        log error "Account has no username. Cannot use this account."
-        return 1
-    fi
     
     if [[ "$acc_name" == "default" ]]; then
         . "$DEFAULT_CONFIG"
@@ -848,9 +842,9 @@ switch_default_account() {
             acc=$(basename "$(dirname "$cfg")")
             local u
             u=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
-            # Skip if same as current default user
+            # Skip if same as current default user or no username
+            [[ -z "$u" ]] && continue
             [[ "$u" == "$current_user" ]] && continue
-            [[ -z "$u" ]] && u="(no username)"
             echo -e "  ${CYAN}$count)${NC} $acc: $u"
             accounts+=("$acc|$u")
             count=$((count + 1))
