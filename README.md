@@ -33,10 +33,10 @@ A powerful bash script that uploads files to GitHub repositories using the GitHu
 
 ```bash
 # Option 1: Download with curl
-curl -O https://raw.githubusercontent.com/username/Uplode-tools-to-github/main/github-upload
+curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github/main/github-upload
 
 # Option 2: Clone with git
-git clone https://github.com/username/Uplode-tools-to-github.git
+git clone https://github.com/papi144/Uplode-tools-to-github.git
 cd Uplode-tools-to-github
 
 # Make it executable
@@ -56,10 +56,10 @@ source ~/.bashrc
 
 ```bash
 # Option 1: Download with curl
-curl -O https://raw.githubusercontent.com/username/Uplode-tools-to-github/main/github-upload
+curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github/main/github-upload
 
 # Option 2: Clone with git
-git clone https://github.com/username/Uplode-tools-to-github.git
+git clone https://github.com/papi144/Uplode-tools-to-github.git
 cd Uplode-tools-to-github
 
 # Make it executable
@@ -75,10 +75,10 @@ chmod +x github-upload
 pkg install curl jq git
 
 # Download
-curl -O https://raw.githubusercontent.com/username/Uplode-tools-to-github/main/github-upload
+curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github/main/github-upload
 
 # Or clone
-git clone https://github.com/username/Uplode-tools-to-github.git
+git clone https://github.com/papi144/Uplode-tools-to-github.git
 cd Uplode-tools-to-github
 
 chmod +x github-upload
@@ -92,7 +92,7 @@ chmod +x github-upload
 wsl --install
 
 # Then in WSL:
-curl -O https://raw.githubusercontent.com/username/Uplode-tools-to-github/main/github-upload
+curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github/main/github-upload
 chmod +x github-upload
 ./github-upload
 ```
@@ -100,7 +100,7 @@ chmod +x github-upload
 ### Windows (Git Bash)
 
 ```bash
-curl -O https://raw.githubusercontent.com/username/Uplode-tools-to-github/main/github-upload
+curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github/main/github-upload
 chmod +x github-upload
 ./github-upload
 ```
@@ -118,11 +118,11 @@ chmod +x github-upload
 ### 2. Add Your Account
 
 ```bash
-# Interactive (will ask for username and token)
+# Interactive (will ask for papi144 and token)
 github-upload -A
 
 # Or non-interactive
-echo "GITHUB_USERNAME=yourusername" > ~/.config/github-upload/config
+echo "GITHUB_USERNAME=yourpapi144" > ~/.config/github-upload/config
 echo "GITHUB_TOKEN=ghp_yourtoken" >> ~/.config/github-upload/config
 chmod 600 ~/.config/github-upload/config
 ```
@@ -195,7 +195,7 @@ github-upload -a work -r company/repo file.txt
 Shows:
 ```
 ╔══════════════════════════════════════════════════════════╗
-║        📁 REPOSITORIES FOR username              ║
+║        📁 REPOSITORIES FOR papi144              ║
 ╚══════════════════════════════════════════════════════════╝
 
 ┌─ 📂 my-repo
@@ -295,8 +295,8 @@ Pull requests welcome!
 
 ## 📧 Contact
 
-- GitHub: [@username](https://github.com/username)
-- Issues: [Open an issue](https://github.com/username/Uplode-tools-to-github/issues)
+- GitHub: [@papi144](https://github.com/papi144)
+- Issues: [Open an issue](https://github.com/papi144/Uplode-tools-to-github/issues)
 
 ---
 
