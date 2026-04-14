@@ -724,6 +724,10 @@ launch_tui() {
         [[ -n "$line" ]] && repo_names+=("$line")
     done < <(echo "$response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//')
     
+    # Ask if user wants to see all files
+    read -rp "Show all files in each repo? (y/N): " show_all
+    [[ "$show_all" =~ ^[Yy]$ ]] || show_all="n"
+    
     for repo_name in "${repo_names[@]}"; do
         repo_count=$((repo_count + 1))
         echo -e "${GREEN}┌─ 📂 $repo_name${NC}"
@@ -742,17 +746,20 @@ launch_tui() {
             if [[ $file_count -eq 0 ]]; then
                 echo -e "${DIM}│   (empty)${NC}"
             else
+                local max_show=5
+                [[ "$show_all" =~ ^[Yy]$ ]] && max_show=100
+                
                 for i in "${!file_names[@]}"; do
-                    if [[ $i -lt 5 ]]; then
-                        if [[ $i -eq $((file_count - 1)) ]] || [[ $i -eq 4 ]]; then
+                    if [[ $i -lt $max_show ]]; then
+                        if [[ $i -eq $((file_count - 1)) ]] || [[ $i -eq $((max_show - 1)) ]]; then
                             echo -e "${DIM}└── 📄 ${file_names[$i]}${NC}"
                         else
                             echo -e "${DIM}├── 📄 ${file_names[$i]}${NC}"
                         fi
                     fi
                 done
-                if [[ $file_count -gt 5 ]]; then
-                    echo -e "${YELLOW}└── ... and $((file_count - 5)) more files${NC}"
+                if [[ $file_count -gt $max_show ]]; then
+                    echo -e "${YELLOW}└── ... and $((file_count - max_show)) more files${NC}"
                 fi
             fi
         fi
