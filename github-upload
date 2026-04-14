@@ -577,8 +577,10 @@ do_upload() {
     [[ -z "$REPO" ]] && { log error "Repository required. Use -r repo"; exit 1; }
     [[ ${#FILES[@]} -eq 0 ]] && { log error "No files specified."; exit 1; }
     
-    # Resolve account
-    resolve_account "$REPO"
+    # Only resolve account if not already loaded (interactive mode sets GITHUB_TOKEN)
+    if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+        resolve_account "$REPO"
+    fi
     
     # Expand repo if needed
     if [[ "$REPO" != */* ]]; then
@@ -654,7 +656,9 @@ do_delete() {
     [[ -z "$REPO" ]] && { log error "Repository required. Use -r repo"; exit 1; }
     [[ -z "$DELETE_FILE" ]] && { log error "File to delete required. Use --delete path/to/file"; exit 1; }
     
-    resolve_account "$REPO"
+    if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+        resolve_account "$REPO"
+    fi
     
     if [[ "$REPO" != */* ]]; then
         REPO="$GITHUB_USERNAME/$REPO"
@@ -666,12 +670,14 @@ do_delete() {
 do_list() {
     [[ -z "$REPO" ]] && { log error "Repository required. Use -r repo"; exit 1; }
     
-    # Load default account directly
-    if [[ -f "$DEFAULT_CONFIG" ]]; then
-        source "$DEFAULT_CONFIG"
-    else
-        log error "No account configured. Run -A to add one."
-        exit 1
+    # Only load default if not already set (interactive mode sets it)
+    if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+        if [[ -f "$DEFAULT_CONFIG" ]]; then
+            source "$DEFAULT_CONFIG"
+        else
+            log error "No account configured. Run -A to add one."
+            exit 1
+        fi
     fi
     
     # Expand repo if needed
