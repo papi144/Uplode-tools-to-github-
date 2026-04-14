@@ -919,6 +919,9 @@ CLEAR_CREDS="false"
 OVERWRITE="false"
 INTERACTIVE="false"
 
+# Save original argument count before parsing
+ORIGINAL_ARGS=$#
+
 while [[ $# -gt 0 ]]; do
     case "$1" in
         -r|--repo)
@@ -1053,7 +1056,7 @@ if [[ "$INTERACTIVE" == "true" ]]; then
 fi
 
 # If no arguments provided, show interactive menu
-if [[ $# -eq 0 ]]; then
+if [[ $ORIGINAL_ARGS -eq 0 ]]; then
     show_interactive_menu
 fi
 
