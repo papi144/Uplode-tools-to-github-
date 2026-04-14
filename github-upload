@@ -834,6 +834,7 @@ remove_account() {
 interactive_upload() {
     . "$DEFAULT_CONFIG" 2>/dev/null || { log error "No account configured"; return; }
     
+    read -rp "Account (default for current user, or enter username): " account_input
     read -rp "Repository (user/repo or just repo name): " repo
     [[ -z "$repo" ]] && { log error "Repository required"; return; }
     
@@ -848,6 +849,32 @@ interactive_upload() {
     read -rp "Commit message (optional): " commit_msg
     [[ -z "$commit_msg" ]] && commit_msg="Upload $(basename "$file_path")"
     
+    # Load the specified account
+    local default_user="$GITHUB_USERNAME"
+    local loaded=false
+    
+    if [[ -z "$account_input" ]] || [[ "$account_input" == "default" ]]; then
+        loaded=true
+    elif [[ "$account_input" == "$default_user" ]]; then
+        loaded=true
+    else
+        for cfg in "$ACCOUNTS_DIR"/*/config; do
+            [[ -f "$cfg" ]] || continue
+            local acc_user
+            acc_user=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
+            if [[ "$acc_user" == "$account_input" ]]; then
+                . "$cfg"
+                loaded=true
+                break
+            fi
+        done
+    fi
+    
+    if [[ "$loaded" != "true" ]]; then
+        log error "Account not found: $account_input"
+        return
+    fi
+    
     REPO="$repo"
     COMMIT_MSG="$commit_msg"
     FILES=("$file_path")
@@ -857,17 +884,61 @@ interactive_upload() {
 interactive_list() {
     . "$DEFAULT_CONFIG" 2>/dev/null || { log error "No account configured"; return; }
     
+    read -rp "Account (default for current user, or enter username): " account_input
     read -rp "Repository (user/repo or just repo name): " repo
     [[ -z "$repo" ]] && { log error "Repository required"; return; }
     
-    REPO="$repo"
-    DO_LIST="true"
-    do_list
+    # Load the specified account
+    local default_user="$GITHUB_USERNAME"
+    local loaded=false
+    
+    if [[ -z "$account_input" ]] || [[ "$account_input" == "default" ]]; then
+        # Use current default account
+        loaded=true
+    elif [[ "$account_input" == "$default_user" ]]; then
+        loaded=true
+    else
+        # Try to load other account
+        for cfg in "$ACCOUNTS_DIR"/*/config; do
+            [[ -f "$cfg" ]] || continue
+            local acc_user
+            acc_user=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
+            if [[ "$acc_user" == "$account_input" ]]; then
+                . "$cfg"
+                loaded=true
+                break
+            fi
+        done
+    fi
+    
+    if [[ "$loaded" != "true" ]]; then
+        log error "Account not found: $account_input"
+        return
+    fi
+    
+    # Expand repo if needed
+    if [[ "$repo" != */* ]]; then
+        repo="$GITHUB_USERNAME/$repo"
+    fi
+    
+    # Get files
+    local response
+    response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/repos/$repo/contents")
+    
+    if echo "$response" | grep -q '"message"'; then
+        log error "Failed to list files"
+        return
+    fi
+    
+    echo -e "${BOLD}Files in $repo${NC}:"
+    echo "$response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//'
 }
 
 interactive_create_repo() {
     . "$DEFAULT_CONFIG" 2>/dev/null || { log error "No account configured"; return; }
     
+    read -rp "Account (default for current user, or enter username): " account_input
     read -rp "Repository name: " repo_name
     [[ -z "$repo_name" ]] && { log error "Repository name required"; return; }
     
@@ -875,6 +946,32 @@ interactive_create_repo() {
     
     read -rp "Make private? (y/N): " is_private
     [[ "$is_private" =~ ^[Yy]$ ]] && IS_PRIVATE="true" || IS_PRIVATE="false"
+    
+    # Load the specified account
+    local default_user="$GITHUB_USERNAME"
+    local loaded=false
+    
+    if [[ -z "$account_input" ]] || [[ "$account_input" == "default" ]]; then
+        loaded=true
+    elif [[ "$account_input" == "$default_user" ]]; then
+        loaded=true
+    else
+        for cfg in "$ACCOUNTS_DIR"/*/config; do
+            [[ -f "$cfg" ]] || continue
+            local acc_user
+            acc_user=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
+            if [[ "$acc_user" == "$account_input" ]]; then
+                . "$cfg"
+                loaded=true
+                break
+            fi
+        done
+    fi
+    
+    if [[ "$loaded" != "true" ]]; then
+        log error "Account not found: $account_input"
+        return
+    fi
     
     read -rp "Upload a file? (y/N): " upload_file
     if [[ "$upload_file" =~ ^[Yy]$ ]]; then
@@ -905,6 +1002,7 @@ interactive_create_repo() {
 interactive_delete() {
     . "$DEFAULT_CONFIG" 2>/dev/null || { log error "No account configured"; return; }
     
+    read -rp "Account (default for current user, or enter username): " account_input
     read -rp "Repository (user/repo or just repo name): " repo
     [[ -z "$repo" ]] && { log error "Repository required"; return; }
     
@@ -913,6 +1011,32 @@ interactive_delete() {
     
     read -rp "Commit message (optional): " commit_msg
     [[ -z "$commit_msg" ]] && commit_msg="Delete $file_path"
+    
+    # Load the specified account
+    local default_user="$GITHUB_USERNAME"
+    local loaded=false
+    
+    if [[ -z "$account_input" ]] || [[ "$account_input" == "default" ]]; then
+        loaded=true
+    elif [[ "$account_input" == "$default_user" ]]; then
+        loaded=true
+    else
+        for cfg in "$ACCOUNTS_DIR"/*/config; do
+            [[ -f "$cfg" ]] || continue
+            local acc_user
+            acc_user=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
+            if [[ "$acc_user" == "$account_input" ]]; then
+                . "$cfg"
+                loaded=true
+                break
+            fi
+        done
+    fi
+    
+    if [[ "$loaded" != "true" ]]; then
+        log error "Account not found: $account_input"
+        return
+    fi
     
     REPO="$repo"
     DELETE_FILE="$file_path"
