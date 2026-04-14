@@ -638,7 +638,8 @@ select_account() {
             acc=$(basename "$(dirname "$cfg")")
             local u
             u=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
-            # Skip if same as default user
+            # Skip if empty username or same as default user
+            [[ -z "$u" ]] && u="(no username)"
             [[ "$u" == "$default_user" ]] && continue
             echo -e "  ${CYAN}$count)${NC} $acc: $u"
             accounts+=("$acc|$u")
@@ -843,6 +844,7 @@ switch_default_account() {
             u=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
             # Skip if same as current default user
             [[ "$u" == "$current_user" ]] && continue
+            [[ -z "$u" ]] && u="(no username)"
             echo -e "  ${CYAN}$count)${NC} $acc: $u"
             accounts+=("$acc|$u")
             count=$((count + 1))
