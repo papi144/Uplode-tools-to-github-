@@ -693,6 +693,60 @@ do_list() {
     echo "$response" | jq -r '.[].name' 2>/dev/null || echo "$response" | sed -n 's/.*"name": "\([^"]*\)".*/\1/p'
 }
 
+# Helper function to show account selection menu
+select_account() {
+    echo -e "${BOLD}Available accounts:${NC}"
+    
+    local accounts=()
+    local count=1
+    
+    if [[ -f "$DEFAULT_CONFIG" ]]; then
+        local user
+        user=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+        echo -e "  ${CYAN}$count)${NC} default: $user"
+        accounts+=("default|$user")
+        count=$((count + 1))
+    fi
+    
+    if [[ -d "$ACCOUNTS_DIR" ]]; then
+        for cfg in "$ACCOUNTS_DIR"/*/config; do
+            [[ -f "$cfg" ]] || continue
+            local acc
+            acc=$(basename "$(dirname "$cfg")")
+            local u
+            u=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
+            echo -e "  ${CYAN}$count)${NC} $acc: $u"
+            accounts+=("$acc|$u")
+            count=$((count + 1))
+        done
+    fi
+    
+    if [[ ${#accounts[@]} -eq 0 ]]; then
+        echo "  (no accounts configured)"
+        return 1
+    fi
+    
+    echo
+    read -rp "Select account [1-${#accounts[@]}]: " choice
+    
+    if [[ -z "$choice" ]] || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt ${#accounts[@]} ]]; then
+        log error "Invalid selection"
+        return 1
+    fi
+    
+    local selected="${accounts[$((choice - 1))]}"
+    local acc_name="${selected%|*}"
+    local acc_user="${selected##*|}"
+    
+    if [[ "$acc_name" == "default" ]]; then
+        . "$DEFAULT_CONFIG"
+    else
+        . "$ACCOUNTS_DIR/$acc_name/config"
+    fi
+    
+    return 0
+}
+
 show_interactive_menu() {
     clear
     echo -e "${MAGENTA}╔══════════════════════════════════════════════════════════════════╗${NC}"
@@ -832,9 +886,8 @@ remove_account() {
 }
 
 interactive_upload() {
-    . "$DEFAULT_CONFIG" 2>/dev/null || { log error "No account configured"; return; }
+    select_account || return
     
-    read -rp "Account (default for current user, or enter username): " account_input
     read -rp "Repository (user/repo or just repo name): " repo
     [[ -z "$repo" ]] && { log error "Repository required"; return; }
     
@@ -849,32 +902,6 @@ interactive_upload() {
     read -rp "Commit message (optional): " commit_msg
     [[ -z "$commit_msg" ]] && commit_msg="Upload $(basename "$file_path")"
     
-    # Load the specified account
-    local default_user="$GITHUB_USERNAME"
-    local loaded=false
-    
-    if [[ -z "$account_input" ]] || [[ "$account_input" == "default" ]]; then
-        loaded=true
-    elif [[ "$account_input" == "$default_user" ]]; then
-        loaded=true
-    else
-        for cfg in "$ACCOUNTS_DIR"/*/config; do
-            [[ -f "$cfg" ]] || continue
-            local acc_user
-            acc_user=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
-            if [[ "$acc_user" == "$account_input" ]]; then
-                . "$cfg"
-                loaded=true
-                break
-            fi
-        done
-    fi
-    
-    if [[ "$loaded" != "true" ]]; then
-        log error "Account not found: $account_input"
-        return
-    fi
-    
     REPO="$repo"
     COMMIT_MSG="$commit_msg"
     FILES=("$file_path")
@@ -882,39 +909,10 @@ interactive_upload() {
 }
 
 interactive_list() {
-    . "$DEFAULT_CONFIG" 2>/dev/null || { log error "No account configured"; return; }
+    select_account || return
     
-    read -rp "Account (default for current user, or enter username): " account_input
     read -rp "Repository (user/repo or just repo name): " repo
     [[ -z "$repo" ]] && { log error "Repository required"; return; }
-    
-    # Load the specified account
-    local default_user="$GITHUB_USERNAME"
-    local loaded=false
-    
-    if [[ -z "$account_input" ]] || [[ "$account_input" == "default" ]]; then
-        # Use current default account
-        loaded=true
-    elif [[ "$account_input" == "$default_user" ]]; then
-        loaded=true
-    else
-        # Try to load other account
-        for cfg in "$ACCOUNTS_DIR"/*/config; do
-            [[ -f "$cfg" ]] || continue
-            local acc_user
-            acc_user=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
-            if [[ "$acc_user" == "$account_input" ]]; then
-                . "$cfg"
-                loaded=true
-                break
-            fi
-        done
-    fi
-    
-    if [[ "$loaded" != "true" ]]; then
-        log error "Account not found: $account_input"
-        return
-    fi
     
     # Expand repo if needed
     if [[ "$repo" != */* ]]; then
@@ -936,9 +934,8 @@ interactive_list() {
 }
 
 interactive_create_repo() {
-    . "$DEFAULT_CONFIG" 2>/dev/null || { log error "No account configured"; return; }
+    select_account || return
     
-    read -rp "Account (default for current user, or enter username): " account_input
     read -rp "Repository name: " repo_name
     [[ -z "$repo_name" ]] && { log error "Repository name required"; return; }
     
@@ -946,32 +943,6 @@ interactive_create_repo() {
     
     read -rp "Make private? (y/N): " is_private
     [[ "$is_private" =~ ^[Yy]$ ]] && IS_PRIVATE="true" || IS_PRIVATE="false"
-    
-    # Load the specified account
-    local default_user="$GITHUB_USERNAME"
-    local loaded=false
-    
-    if [[ -z "$account_input" ]] || [[ "$account_input" == "default" ]]; then
-        loaded=true
-    elif [[ "$account_input" == "$default_user" ]]; then
-        loaded=true
-    else
-        for cfg in "$ACCOUNTS_DIR"/*/config; do
-            [[ -f "$cfg" ]] || continue
-            local acc_user
-            acc_user=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
-            if [[ "$acc_user" == "$account_input" ]]; then
-                . "$cfg"
-                loaded=true
-                break
-            fi
-        done
-    fi
-    
-    if [[ "$loaded" != "true" ]]; then
-        log error "Account not found: $account_input"
-        return
-    fi
     
     read -rp "Upload a file? (y/N): " upload_file
     if [[ "$upload_file" =~ ^[Yy]$ ]]; then
@@ -1000,9 +971,8 @@ interactive_create_repo() {
 }
 
 interactive_delete() {
-    . "$DEFAULT_CONFIG" 2>/dev/null || { log error "No account configured"; return; }
+    select_account || return
     
-    read -rp "Account (default for current user, or enter username): " account_input
     read -rp "Repository (user/repo or just repo name): " repo
     [[ -z "$repo" ]] && { log error "Repository required"; return; }
     
@@ -1011,32 +981,6 @@ interactive_delete() {
     
     read -rp "Commit message (optional): " commit_msg
     [[ -z "$commit_msg" ]] && commit_msg="Delete $file_path"
-    
-    # Load the specified account
-    local default_user="$GITHUB_USERNAME"
-    local loaded=false
-    
-    if [[ -z "$account_input" ]] || [[ "$account_input" == "default" ]]; then
-        loaded=true
-    elif [[ "$account_input" == "$default_user" ]]; then
-        loaded=true
-    else
-        for cfg in "$ACCOUNTS_DIR"/*/config; do
-            [[ -f "$cfg" ]] || continue
-            local acc_user
-            acc_user=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
-            if [[ "$acc_user" == "$account_input" ]]; then
-                . "$cfg"
-                loaded=true
-                break
-            fi
-        done
-    fi
-    
-    if [[ "$loaded" != "true" ]]; then
-        log error "Account not found: $account_input"
-        return
-    fi
     
     REPO="$repo"
     DELETE_FILE="$file_path"
