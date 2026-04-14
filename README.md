@@ -26,11 +26,15 @@ A powerful bash script that uploads files to GitHub repositories using the GitHu
 
 ## 🔧 Installation
 
-### Quick Install
+### Linux / VPS / Server
 
 ```bash
-# Download the script
+# Option 1: Download with curl
 curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload
+
+# Option 2: Clone with git
+git clone https://github.com/papi144/Uplode-tools-to-github-.git
+cd Uplode-tools-to-github-
 
 # Make it executable
 chmod +x github-upload
@@ -42,12 +46,95 @@ echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 ```
 
-### From Source
+### macOS
 
 ```bash
+# Option 1: Download with curl
+curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-toGithub-/main/github-upload
+
+# Option 2: Clone with git
 git clone https://github.com/papi144/Uplode-tools-to-github-.git
 cd Uplode-tools-to-github-
+
+# Make it executable
 chmod +x github-upload
+
+# Optional: Install to PATH
+mkdir -p ~/bin
+mv github-upload ~/bin/
+echo 'export PATH="$HOME/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+### Android (Termux)
+
+```bash
+# Install dependencies
+pkg install curl jq git
+
+# Option 1: Download with curl
+curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload
+
+# Option 2: Clone with git
+git clone https://github.com/papi144/Uplode-tools-to-github-.git
+cd Uplode-tools-to-github-
+
+# Make it executable
+chmod +x github-upload
+```
+
+### Windows (WSL) - Recommended
+
+```bash
+# Install WSL if not already
+wsl --install
+
+# Then in WSL terminal:
+# Option 1: Download with curl
+curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload
+
+# Option 2: Clone with git
+git clone https://github.com/papi144/Uplode-tools-to-github-.git
+cd Uplode-tools-to-github-
+
+chmod +x github-upload
+./github-upload -A
+```
+
+### Windows (Git Bash)
+
+```bash
+# Download using curl
+curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload
+
+# Make it executable
+chmod +x github-upload
+
+# Run
+./github-upload -A
+```
+
+### Windows (PowerShell)
+
+```powershell
+# Download the script
+Invoke-WebRequest -Uri "https://raw.githubusercontent.com/papi144/Uplode-tools-to-github-/main/github-upload" -OutFile "github-upload"
+```
+
+### From Source (git clone)
+
+```bash
+# Clone the repository
+git clone https://github.com/papi144/Uplode-tools-to-github-.git
+cd Uplode-tools-to-github-
+
+# Make it executable
+chmod +x github-upload
+
+# Run
+./github-upload -A
+
+# Optional: Install to PATH
 sudo mv github-upload /usr/local/bin/
 ```
 
@@ -71,6 +158,36 @@ github-upload -A
 echo "GITHUB_USERNAME=yourusername" > ~/.config/github-upload/config
 echo "GITHUB_TOKEN=ghp_yourtoken" >> ~/.config/github-upload/config
 chmod 600 ~/.config/github-upload/config
+```
+
+### Secure Token Storage
+
+#### Option 1: Environment Variable (Recommended)
+```bash
+# Add to ~/.bashrc or ~/.profile
+export GITHUB_TOKEN="ghp_yourtoken"
+export GITHUB_USERNAME="yourusername"
+
+# Source it
+source ~/.bashrc
+```
+
+#### Option 2: System Keychain (Linux)
+```bash
+# Install keychain
+apt install keychain
+
+# Add token
+keychain --eval github.token ghp_yourtoken >> ~/.bashrc
+
+# Add to ~/.bashrc
+eval $(keychain --eval github.token)
+```
+
+#### Option 3: macOS Keychain
+```bash
+# Store in Keychain
+security add-internet-password -s github.com -a username -w "ghp_yourtoken"
 ```
 
 ## 🚀 Usage
@@ -156,6 +273,9 @@ github-upload -r my-repo -m "Updated" myfile.apk
 | `-a, --account NAME` | Use specific account |
 | `--list-accounts` | List all saved accounts |
 | `--list [PATH]` | List files in repository |
+| `--list-repos` | List your repositories |
+| `--list-branches` | List branches in repository |
+| `-b, --branch NAME` | Create new branch |
 | `--delete PATH` | Delete a file from repository |
 | `-q, --quiet` | Quiet mode (minimal output) |
 | `-n, --dry-run` | Show what would be uploaded |
@@ -225,6 +345,29 @@ github-upload -r my-repo --delete temp1.tmp
 github-upload -r my-repo --delete temp2.tmp
 ```
 
+### List Your Repositories
+
+```bash
+github-upload --list-repos
+```
+
+### List Branches
+
+```bash
+# List branches in a repository
+github-upload -r my-repo --list-branches
+```
+
+### Create Branch
+
+```bash
+# Create new branch from main
+github-upload -r my-repo -b feature-branch
+
+# Create branch from specific branch
+github-upload -r my-repo -b dev-branch --source-branch develop
+```
+
 ## 🔍 Troubleshooting
 
 ### "No account configured"
@@ -260,19 +403,20 @@ github-upload --clear
 github-upload -A
 ```
 
-## 🌐 Works On
-
-- ✅ Linux (all distros)
-- ✅ macOS
-- ✅ Windows (WSL)
-- ✅ Android (Termux)
-- ✅ VPS / Servers
-- ✅ GitHub Codespaces
-- ✅ GitLab CI / GitHub Actions
-
 ## 📄 License
 
 MIT License - See [LICENSE](LICENSE)
+
+## 🌐 Works On
+
+| Platform | Status |
+|----------|--------|
+| Linux (all distros) | ✅ |
+| macOS | ✅ |
+| Windows (WSL) | ✅ |
+| Windows (Git Bash) | ✅ |
+| Android (Termux) | ✅ |
+| VPS / Servers | ✅ |
 
 ## 🤝 Contributing
 
@@ -285,4 +429,4 @@ Pull requests welcome! Please read contributing guidelines first.
 
 ---
 
-**Made with ❤️ for easy file uploads to GitHub**
+**Enjoy!**
