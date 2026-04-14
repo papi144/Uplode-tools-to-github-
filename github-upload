@@ -697,6 +697,34 @@ select_account() {
     fi
 }
 
+launch_tui() {
+    echo -e "${BOLD}Launching TUI (graph view)...${NC}"
+    echo
+    
+    # Check if TUI script exists
+    local tui_script="$(dirname "$0")/github-upload-tui.py"
+    
+    if [[ ! -f "$tui_script" ]]; then
+        log error "TUI script not found: $tui_script"
+        return
+    fi
+    
+    # Check if python3 is available
+    if ! command -v python3 > /dev/null 2>&1; then
+        log error "Python3 not found. Install python3 to use TUI."
+        return
+    fi
+    
+    # Check for requests library
+    if ! python3 -c "import requests" 2>/dev/null; then
+        echo -e "${YELLOW}Installing required library: requests${NC}"
+        pip install requests 2>/dev/null || pip3 install requests 2>/dev/null || { log error "Failed to install requests"; return; }
+    fi
+    
+    # Run the TUI
+    python3 "$tui_script"
+}
+
 show_interactive_menu() {
     clear
     echo -e "${MAGENTA}╔══════════════════════════════════════════════════════════════════╗${NC}"
@@ -734,10 +762,11 @@ show_interactive_menu() {
     echo -e "  ${CYAN}8)${NC}  List my repositories"
     echo -e "  ${CYAN}9)${NC}  List repos for specific account"
     echo -e "  ${CYAN}10)${NC} Delete file from repository"
-    echo -e "  ${CYAN}11)${NC} Exit"
+    echo -e "  ${CYAN}11)${NC} See graph (TUI - tree view)"
+    echo -e "  ${CYAN}12)${NC} Exit"
     echo
     
-    read -rp "Enter your choice [1-11]: " choice
+    read -rp "Enter your choice [1-12]: " choice
     echo
     
     case "$choice" in
@@ -772,6 +801,9 @@ show_interactive_menu() {
             interactive_delete
             ;;
         11)
+            launch_tui
+            ;;
+        12)
             echo -e "${GREEN}Goodbye!${NC}"
             exit 0
             ;;
