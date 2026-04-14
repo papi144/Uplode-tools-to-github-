@@ -86,7 +86,7 @@ list_repos_for_account() {
         local user
         user=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
         echo -e "  ${CYAN}default${NC}: $user"
-        accounts+=("default")
+        accounts+=("default|$user")
     fi
     
     if [[ -d "$ACCOUNTS_DIR" ]]; then
@@ -97,7 +97,7 @@ list_repos_for_account() {
             local u
             u=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
             echo -e "  ${CYAN}$acc${NC}: $u"
-            accounts+=("$acc")
+            accounts+=("$acc|$u")
         done
     fi
     
@@ -107,25 +107,41 @@ list_repos_for_account() {
     fi
     
     echo
-    read -rp "Enter account name: " acc_name
+    read -rp "Enter account name or username: " acc_name
     
     [[ -z "$acc_name" ]] && { log error "Account name required"; return; }
     
-    # Load the account
+# Load the account - check by account name or username
+    local loaded=false
+    local default_user=""
+    
+    # Get default username for comparison
+    if [[ -f "$DEFAULT_CONFIG" ]]; then
+        default_user=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+    fi
+    
     if [[ "$acc_name" == "default" ]]; then
         if [[ -f "$DEFAULT_CONFIG" ]]; then
             . "$DEFAULT_CONFIG"
-        else
-            log error "Default account not found"
-            return
+            loaded=true
+        fi
+    elif [[ "$acc_name" == "$default_user" ]]; then
+        # Matched by username - load default account
+        if [[ -f "$DEFAULT_CONFIG" ]]; then
+            . "$DEFAULT_CONFIG"
+            loaded=true
         fi
     else
+        # Check by account name first
         if [[ -f "$ACCOUNTS_DIR/$acc_name/config" ]]; then
             . "$ACCOUNTS_DIR/$acc_name/config"
-        else
-            log error "Account not found: $acc_name"
-            return
+            loaded=true
         fi
+    fi
+    
+    if [[ "$loaded" != "true" ]]; then
+        log error "Account not found: $acc_name"
+        return
     fi
     
     # List repos for this account
