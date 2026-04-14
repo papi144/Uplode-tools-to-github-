@@ -42,6 +42,9 @@ cd Uplode-tools-to-github
 # Make it executable
 chmod +x github-upload
 
+# Run it (will guide you to add account)
+./github-upload
+
 # Optional: Install to PATH
 mkdir -p ~/bin
 mv github-upload ~/bin/
@@ -61,7 +64,9 @@ cd Uplode-tools-to-github
 
 # Make it executable
 chmod +x github-upload
-```
+
+# Run it (will guide you)
+./github-upload
 
 ### Android (Termux)
 
@@ -77,6 +82,7 @@ git clone https://github.com/papi144/Uplode-tools-to-github.git
 cd Uplode-tools-to-github
 
 chmod +x github-upload
+./github-upload
 ```
 
 ### Windows (WSL)
@@ -88,7 +94,7 @@ wsl --install
 # Then in WSL:
 curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github/main/github-upload
 chmod +x github-upload
-./github-upload -A
+./github-upload
 ```
 
 ### Windows (Git Bash)
@@ -96,7 +102,7 @@ chmod +x github-upload
 ```bash
 curl -O https://raw.githubusercontent.com/papi144/Uplode-tools-to-github/main/github-upload
 chmod +x github-upload
-./github-upload -A
+./github-upload
 ```
 
 ## 🔐 Setup
