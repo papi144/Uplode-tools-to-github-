@@ -71,10 +71,67 @@ jq_safe() {
 }
 
 handle_list_repos_menu() {
-    . "$DEFAULT_CONFIG" 2>/dev/null || { log error "No account configured"; return 1; }
+    . "$DEFAULT_CONFIG" 2>/dev/null || { log error "No account configured"; return; }
     local response
     response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/user/repos?per_page=100")
     echo -e "${BOLD}Your repositories:${NC}"
+    echo "$response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//'
+}
+
+list_repos_for_account() {
+    echo -e "${BOLD}Available accounts:${NC}"
+    local accounts=()
+    
+    if [[ -f "$DEFAULT_CONFIG" ]]; then
+        local user
+        user=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+        echo -e "  ${CYAN}default${NC}: $user"
+        accounts+=("default")
+    fi
+    
+    if [[ -d "$ACCOUNTS_DIR" ]]; then
+        for cfg in "$ACCOUNTS_DIR"/*/config; do
+            [[ -f "$cfg" ]] || continue
+            local acc
+            acc=$(basename "$(dirname "$cfg")")
+            local u
+            u=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
+            echo -e "  ${CYAN}$acc${NC}: $u"
+            accounts+=("$acc")
+        done
+    fi
+    
+    if [[ ${#accounts[@]} -eq 0 ]]; then
+        log error "No accounts configured"
+        return
+    fi
+    
+    echo
+    read -rp "Enter account name: " acc_name
+    
+    [[ -z "$acc_name" ]] && { log error "Account name required"; return; }
+    
+    # Load the account
+    if [[ "$acc_name" == "default" ]]; then
+        if [[ -f "$DEFAULT_CONFIG" ]]; then
+            . "$DEFAULT_CONFIG"
+        else
+            log error "Default account not found"
+            return
+        fi
+    else
+        if [[ -f "$ACCOUNTS_DIR/$acc_name/config" ]]; then
+            . "$ACCOUNTS_DIR/$acc_name/config"
+        else
+            log error "Account not found: $acc_name"
+            return
+        fi
+    fi
+    
+    # List repos for this account
+    local response
+    response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/user/repos?per_page=100")
+    echo -e "${BOLD}Repositories for $GITHUB_USERNAME:${NC}"
     echo "$response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//'
 }
 
@@ -632,11 +689,12 @@ show_interactive_menu() {
     echo -e "  ${CYAN}5)${NC}  List files in repository"
     echo -e "  ${CYAN}6)${NC}  Create new repository"
     echo -e "  ${CYAN}7)${NC}  List my repositories"
-    echo -e "  ${CYAN}8)${NC}  Delete file from repository"
-    echo -e "  ${CYAN}9)${NC}  Exit"
+    echo -e "  ${CYAN}8)${NC}  List repos for specific account"
+    echo -e "  ${CYAN}9)${NC}  Delete file from repository"
+    echo -e "  ${CYAN}10)${NC} Exit"
     echo
     
-    read -rp "Enter your choice [1-9]: " choice
+    read -rp "Enter your choice [1-10]: " choice
     echo
     
     case "$choice" in
@@ -662,9 +720,12 @@ show_interactive_menu() {
             handle_list_repos_menu
             ;;
         8)
-            interactive_delete
+            list_repos_for_account
             ;;
         9)
+            interactive_delete
+            ;;
+        10)
             echo -e "${GREEN}Goodbye!${NC}"
             exit 0
             ;;
