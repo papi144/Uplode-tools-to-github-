@@ -493,6 +493,11 @@ do_upload() {
         resolve_account "$REPO"
     fi
     
+    # Ensure we have username
+    if [[ -z "${GITHUB_USERNAME:-}" ]]; then
+        GITHUB_USERNAME=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+    fi
+    
     # Expand repo if needed
     if [[ "$REPO" != */* ]]; then
         REPO="$GITHUB_USERNAME/$REPO"
@@ -571,6 +576,11 @@ do_delete() {
         resolve_account "$REPO"
     fi
     
+    # Ensure we have username
+    if [[ -z "${GITHUB_USERNAME:-}" ]]; then
+        GITHUB_USERNAME=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+    fi
+    
     if [[ "$REPO" != */* ]]; then
         REPO="$GITHUB_USERNAME/$REPO"
     fi
@@ -589,6 +599,11 @@ do_list() {
             log error "No account configured. Run -A to add one."
             exit 1
         fi
+    fi
+    
+    # Ensure we have username
+    if [[ -z "${GITHUB_USERNAME:-}" ]]; then
+        GITHUB_USERNAME=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
     fi
     
     # Expand repo if needed
