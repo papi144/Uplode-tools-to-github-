@@ -748,6 +748,8 @@ show_interactive_menu() {
             ;;
         10)
             interactive_delete
+            ;;
+        11)
             echo -e "${GREEN}Goodbye!${NC}"
             exit 0
             ;;
