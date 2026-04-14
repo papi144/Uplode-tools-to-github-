@@ -777,16 +777,17 @@ show_interactive_menu() {
     echo -e "  ${CYAN}1)${NC}  Add new account"
     echo -e "  ${CYAN}2)${NC}  List available accounts"
     echo -e "  ${CYAN}3)${NC}  Remove account"
-    echo -e "  ${CYAN}4)${NC}  Upload file(s)"
-    echo -e "  ${CYAN}5)${NC}  List files in repository"
-    echo -e "  ${CYAN}6)${NC}  Create new repository"
-    echo -e "  ${CYAN}7)${NC}  List my repositories"
-    echo -e "  ${CYAN}8)${NC}  List repos for specific account"
-    echo -e "  ${CYAN}9)${NC}  Delete file from repository"
-    echo -e "  ${CYAN}10)${NC} Exit"
+    echo -e "  ${CYAN}4)${NC}  Switch default account"
+    echo -e "  ${CYAN}5)${NC}  Upload file(s)"
+    echo -e "  ${CYAN}6)${NC}  List files in repository"
+    echo -e "  ${CYAN}7)${NC}  Create new repository"
+    echo -e "  ${CYAN}8)${NC}  List my repositories"
+    echo -e "  ${CYAN}9)${NC}  List repos for specific account"
+    echo -e "  ${CYAN}10)${NC} Delete file from repository"
+    echo -e "  ${CYAN}11)${NC} Exit"
     echo
     
-    read -rp "Enter your choice [1-10]: " choice
+    read -rp "Enter your choice [1-11]: " choice
     echo
     
     case "$choice" in
@@ -800,6 +801,9 @@ show_interactive_menu() {
             remove_account
             ;;
         4)
+            switch_default_account
+            ;;
+        5)
             interactive_upload
             ;;
         5)
@@ -809,15 +813,18 @@ show_interactive_menu() {
             interactive_create_repo
             ;;
         7)
-            handle_list_repos_menu
+            interactive_create_repo
             ;;
         8)
-            list_repos_for_account
+            handle_list_repos_menu
             ;;
         9)
-            interactive_delete
+            list_repos_for_account
             ;;
         10)
+            interactive_delete
+            ;;
+        11)
             echo -e "${GREEN}Goodbye!${NC}"
             exit 0
             ;;
@@ -883,6 +890,68 @@ remove_account() {
             log error "Account not found: $acc_name"
         fi
     fi
+}
+
+switch_default_account() {
+    echo -e "${BOLD}Select account to set as default:${NC}"
+    echo
+    
+    local accounts=()
+    local count=1
+    local current_user=""
+    
+    if [[ -f "$DEFAULT_CONFIG" ]]; then
+        current_user=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+    fi
+    
+    # Show current default as option 1
+    if [[ -n "$current_user" ]]; then
+        echo -e "  ${CYAN}$count)${NC} default: $current_user ${YELLOW}(current)${NC}"
+        accounts+=("default|$current_user")
+        count=$((count + 1))
+    fi
+    
+    # Show additional accounts
+    if [[ -d "$ACCOUNTS_DIR" ]]; then
+        for cfg in "$ACCOUNTS_DIR"/*/config; do
+            [[ -f "$cfg" ]] || continue
+            local acc
+            acc=$(basename "$(dirname "$cfg")")
+            local u
+            u=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
+            echo -e "  ${CYAN}$count)${NC} $acc: $u"
+            accounts+=("$acc|$u")
+            count=$((count + 1))
+        done
+    fi
+    
+    if [[ ${#accounts[@]} -eq 0 ]]; then
+        log error "No accounts available"
+        return
+    fi
+    
+    echo
+    read -rp "Select [1-${#accounts[@]}]: " choice
+    
+    if [[ -z "$choice" ]] || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt ${#accounts[@]} ]]; then
+        log error "Invalid selection"
+        return
+    fi
+    
+    local selected="${accounts[$((choice - 1))]}"
+    local acc_name="${selected%|*}"
+    local acc_user="${selected##*|}"
+    
+    # Copy the selected account config to default
+    if [[ "$acc_name" == "default" ]]; then
+        log info "Already using default account"
+        return
+    fi
+    
+    cp "$ACCOUNTS_DIR/$acc_name/config" "$DEFAULT_CONFIG"
+    chmod 600 "$DEFAULT_CONFIG"
+    
+    log success "Switched default account to: $acc_user"
 }
 
 interactive_upload() {
