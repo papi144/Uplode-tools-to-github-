@@ -697,6 +697,43 @@ select_account() {
     fi
 }
 
+get_file_emoji() {
+    local file="$1"
+    local ext="${file##*.}"
+    local name="$(basename "$file")"
+    
+    # Check by extension first
+    case "${ext,,}" in
+        apk) echo "📦" ;;  # Android package
+        ipa) echo "📱" ;;  # iOS package
+        jar) echo "☕" ;;  # Java
+        zip|rar|7z|tar|gz) echo "🗜️" ;;  # Archives
+        pdf) echo "📕" ;;  # PDF
+        doc|docx) echo "📝" ;;  # Word
+        xls|xlsx) echo "📊" ;;  # Excel
+        ppt|pptx) echo "📑" ;;  # PowerPoint
+        txt|md|rst) echo "📄" ;;  # Text
+        py) echo "🐍" ;;  # Python
+        js) echo "📜" ;;  # JavaScript
+        html|css) echo "🌐" ;;  # Web
+        json|xml|yaml|yml) echo "📋" ;;  # Config
+        sh|bash) echo "⚡" ;;  # Shell
+        go) echo "🐹" ;;  # Go
+        rs) echo "🦀" ;;  # Rust
+        java) echo "☕" ;;  # Java
+        kt|kts) echo "🤖" ;;  # Kotlin
+        swift) echo "🍎" ;;  # Swift
+        c|cpp|h) echo "⚙️" ;;  # C/C++
+        png|jpg|jpeg|gif|svg|webp|bmp) echo "🖼️" ;;  # Images
+        mp3|wav|ogg|flac) echo "🎵" ;;  # Audio
+        mp4|mkv|avi|mov) echo "🎬" ;;  # Video
+        exe|msi) echo "💻" ;;  # Windows
+        deb|rpm|appimage) echo "📦" ;;  # Linux packages
+        aab) echo "📦" ;;  # Android App Bundle
+        *) echo "📄" ;;  # Default
+    esac
+}
+
 launch_tui() {
     select_account || return
     
@@ -751,10 +788,12 @@ launch_tui() {
                 
                 for i in "${!file_names[@]}"; do
                     if [[ $i -lt $max_show ]]; then
+                        local emoji
+                        emoji=$(get_file_emoji "${file_names[$i]}")
                         if [[ $i -eq $((file_count - 1)) ]] || [[ $i -eq $((max_show - 1)) ]]; then
-                            echo -e "${DIM}└── 📄 ${file_names[$i]}${NC}"
+                            echo -e "${DIM}└── $emoji ${file_names[$i]}${NC}"
                         else
-                            echo -e "${DIM}├── 📄 ${file_names[$i]}${NC}"
+                            echo -e "${DIM}├── $emoji ${file_names[$i]}${NC}"
                         fi
                     fi
                 done
