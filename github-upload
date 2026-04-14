@@ -114,10 +114,21 @@ list_repos_for_account() {
 # Load the account - check by account name or username
     local loaded=false
     local default_user=""
+    local additional_users=()
     
     # Get default username for comparison
     if [[ -f "$DEFAULT_CONFIG" ]]; then
         default_user=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+    fi
+    
+    # Get all additional account usernames
+    if [[ -d "$ACCOUNTS_DIR" ]]; then
+        for cfg in "$ACCOUNTS_DIR"/*/config; do
+            [[ -f "$cfg" ]] || continue
+            local acc_user
+            acc_user=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
+            [[ -n "$acc_user" ]] && additional_users+=("$acc_user")
+        done
     fi
     
     if [[ "$acc_name" == "default" ]]; then
@@ -126,16 +137,27 @@ list_repos_for_account() {
             loaded=true
         fi
     elif [[ "$acc_name" == "$default_user" ]]; then
-        # Matched by username - load default account
         if [[ -f "$DEFAULT_CONFIG" ]]; then
             . "$DEFAULT_CONFIG"
             loaded=true
         fi
     else
-        # Check by account name first
-        if [[ -f "$ACCOUNTS_DIR/$acc_name/config" ]]; then
+        # Check by account name (folder name in accounts dir)
+        if [[ -d "$ACCOUNTS_DIR/$acc_name" ]]; then
             . "$ACCOUNTS_DIR/$acc_name/config"
             loaded=true
+        else
+            # Check by username in additional accounts
+            for cfg in "$ACCOUNTS_DIR"/*/config; do
+                [[ -f "$cfg" ]] || continue
+                local acc_user
+                acc_user=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
+                if [[ "$acc_user" == "$acc_name" ]]; then
+                    . "$cfg"
+                    loaded=true
+                    break
+                fi
+            done
         fi
     fi
     
