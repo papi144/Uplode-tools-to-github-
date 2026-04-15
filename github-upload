@@ -871,17 +871,6 @@ show_interactive_menu() {
                 exit 0
                 ;;
             *)
-            11) launch_tui ;;
-            12) interactive_clone ;;
-            13)
-                echo -e "${GREEN}Goodbye!${NC}"
-                exit 0
-                ;;
-            *)
-                echo -e "${GREEN}Goodbye!${NC}"
-                exit 0
-                ;;
-            *)
                 log error "Invalid option"
                 ;;
         esac
