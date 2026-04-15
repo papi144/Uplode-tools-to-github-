@@ -941,10 +941,12 @@ show_interactive_menu() {
         echo -e "  ${CYAN}13)${NC} Make private/public"
         echo -e "  ${CYAN}14)${NC} Rename/move file"
         echo -e "  ${CYAN}15)${NC} Move file across repos"
-        echo -e "  ${CYAN}16)${NC} Exit"
+        echo -e "  ${CYAN}16)${NC} View file in terminal"
+        echo -e "  ${CYAN}17)${NC} Scan for secrets"
+        echo -e "  ${CYAN}18)${NC} Exit"
         echo
 
-        read -rp "Enter your choice [1-16]: " choice
+        read -rp "Enter your choice [1-18]: " choice
         echo
 
         case "$choice" in
@@ -963,7 +965,9 @@ show_interactive_menu() {
             13) toggle_repo_visibility ;;
             14) interactive_rename_file ;;
             15) interactive_move_cross_repo ;;
-            16)
+            16) interactive_view_file ;;
+            17) secret_scan ;;
+            18)
                 echo -e "${GREEN}Goodbye!${NC}"
                 exit 0
                 ;;
@@ -1447,6 +1451,99 @@ interactive_move_cross_repo() {
     fi
 }
 
+interactive_view_file() {
+    select_account || return
+
+    read -rp "Repository (user/repo or just repo name): " repo
+    [[ -z "$repo" ]] && { log error "Repository required"; return; }
+
+    read -rp "File path: " file_path
+    [[ -z "$file_path" ]] && { log error "File path required"; return; }
+
+    if [[ -z "${GITHUB_USERNAME:-}" ]]; then
+        GITHUB_USERNAME=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+    fi
+
+    [[ "$repo" != */* ]] && repo="$GITHUB_USERNAME/$repo"
+
+    log info "Fetching $file_path..."
+
+    local response
+    response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/repos/$repo/contents/$file_path")
+
+    if echo "$response" | grep -q '"message"'; then
+        log error "File not found"
+        return
+    fi
+
+    local content
+    content=$(echo "$response" | grep -o '"content": "[^"]*"' | cut -d'"' -f4 | head -1)
+
+    if [[ -z "$content" ]]; then
+        log error "Could not get file content"
+        return
+    fi
+
+    echo
+    echo -e "${BOLD}$repo/$file_path:${NC}"
+    echo -e "${CYAN}$(printf '=%.0s' $(seq 1 50))${NC}"
+    echo
+
+    local decoded
+    if base64 --help 2>&1 | grep -q '\-d'; then
+        decoded=$(echo "$content" | base64 -d)
+    else
+        decoded=$(echo "$content" | base64 -D)
+    fi
+
+    echo "$decoded"
+}
+
+secret_scan() {
+    select_account || return
+
+    read -rp "Repository to scan: " repo
+    [[ -z "$repo" ]] && { log error "Repository required"; return; }
+
+    if [[ -z "${GITHUB_USERNAME:-}" ]]; then
+        GITHUB_USERNAME=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+    fi
+
+    [[ "$repo" != */* ]] && repo="$GITHUB_USERNAME/$repo"
+
+    echo -e "${YELLOW}[!] Scanning for secrets in $repo...${NC}"
+
+    local patterns=(
+        "ghp_[a-zA-Z0-9]{36}"
+        "github_pat_[a-zA-Z0-9]{22,}"
+        "AKIA[0-9A-Z]{16}"
+        "sk-[a-zA-Z0-9]{20,}"
+        "xox[baprs]-[a-zA-Z0-9]{10,}"
+        "-----BEGIN [RDSA ]?PRIVATE KEY-----"
+    )
+
+    local found=0
+
+    for pattern in "${patterns[@]}"; do
+        local matches
+        matches=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "https://api.github.com/repos/$repo/contents" | grep -i "$pattern")
+
+        if [[ -n "$matches" ]]; then
+            echo -e "${RED}[!] Found potential secret: $pattern${NC}"
+            found=1
+        fi
+    done
+
+    if [[ "$found" == "0" ]]; then
+        log success "No obvious secrets found"
+        echo -e "${DIM}Note: This is basic scan. Do thorough review manually.${NC}"
+    else
+        log warn "Review and rotate any found secrets immediately!"
+    fi
+}
+
 interactive_clone() {
     select_account || return
 
@@ -1732,7 +1829,7 @@ interactive_upload_dir() {
 show_help() {
     cat << 'HELPEOF'
 ╔══════════════════════════════════════════════════════════════════╗
-║        GitHub Direct Upload Tool v2.20                 ║
+║        GitHub Direct Upload Tool v2.21                 ║
 ║        Upload files to GitHub WITHOUT cloning!               ║
 ╚══════════════════════════════════════════════════════════════════╝
 
