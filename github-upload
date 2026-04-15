@@ -1286,7 +1286,7 @@ interactive_upload_dir() {
 show_help() {
     cat << 'HELPEOF'
 ╔══════════════════════════════════════════════════════════════════╗
-║        GitHub Direct Upload Tool v2.6 (Fixed)                 ║
+║        GitHub Direct Upload Tool v2.7                 ║
 ║        Upload files to GitHub WITHOUT cloning!               ║
 ╚══════════════════════════════════════════════════════════════════╝
 
