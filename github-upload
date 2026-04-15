@@ -1352,34 +1352,35 @@ interactive_rename_file() {
 interactive_move_cross_repo() {
     select_account || return
 
+    local from_token="$GITHUB_TOKEN"
+    local from_user="$GITHUB_USERNAME"
+
     read -rp "From repository: " from_repo
     [[ -z "$from_repo" ]] && { log error "From repository required"; return; }
 
     read -rp "File path in source repo: " file_path
     [[ -z "$file_path" ]] && { log error "File path required"; return; }
 
-    read -rp "To repository: " to_repo
-    [[ -z "$to_repo" ]] && { log error "To repository required"; return; }
-
-    read -rp "Use different account? (y/N): " diff_account
-    [[ -z "${GITHUB_USERNAME:-}" ]] && GITHUB_USERNAME=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
-
-    [[ "$from_repo" != */* ]] && from_repo="$GITHUB_USERNAME/$from_repo"
-    [[ "$to_repo" != */* ]] && to_repo="$GITHUB_USERNAME/$to_repo"
-
-    local token="$GITHUB_TOKEN"
-    local username="$GITHUB_USERNAME"
+    read -rp "Use different account for destination? (y/N): " diff_account
+    local to_token="$GITHUB_TOKEN"
+    local to_user="$GITHUB_USERNAME"
 
     if [[ "$diff_account" =~ ^[Yy]$ ]]; then
         select_account || return
-        token="$GITHUB_TOKEN"
-        username="$GITHUB_USERNAME"
+        to_token="$GITHUB_TOKEN"
+        to_user="$GITHUB_USERNAME"
     fi
+
+    read -rp "To repository: " to_repo
+    [[ -z "$to_repo" ]] && { log error "To repository required"; return; }
+
+    [[ "$from_repo" != */* ]] && from_repo="$from_user/$from_repo"
+    [[ "$to_repo" != */* ]] && to_repo="$to_user/$to_repo"
 
     log info "Downloading from $from_repo..."
 
     local sha_response
-    sha_response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+    sha_response=$(curl -s -H "Authorization: Bearer $from_token" \
         "https://api.github.com/repos/$from_repo/contents/$file_path")
 
     local sha
@@ -1410,7 +1411,7 @@ interactive_move_cross_repo() {
 
     local http_code
     http_code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
-        -H "Authorization: Bearer $GITHUB_TOKEN" \
+        -H "Authorization: Bearer $to_token" \
         -H "Accept: application/vnd.github+json" \
         -H "Content-Type: application/json" \
         --data-binary "@$tmpfile" \
@@ -1430,7 +1431,7 @@ interactive_move_cross_repo() {
 
         local del_code
         del_code=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
-            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Authorization: Bearer $from_token" \
             -H "Accept: application/vnd.github+json" \
             --data-binary "@$del_tmpfile" \
             "https://api.github.com/repos/$from_repo/contents/$file_path")
@@ -1731,7 +1732,7 @@ interactive_upload_dir() {
 show_help() {
     cat << 'HELPEOF'
 ╔══════════════════════════════════════════════════════════════════╗
-║        GitHub Direct Upload Tool v2.19                 ║
+║        GitHub Direct Upload Tool v2.20                 ║
 ║        Upload files to GitHub WITHOUT cloning!               ║
 ╚══════════════════════════════════════════════════════════════════╝
 
