@@ -844,10 +844,11 @@ show_interactive_menu() {
         echo -e "  ${CYAN}9)${NC}  List repos for specific account"
         echo -e "  ${CYAN}10)${NC} Delete file from repository"
         echo -e "  ${CYAN}11)${NC} See graph (TUI - tree view)"
-        echo -e "  ${CYAN}12)${NC} Exit"
+        echo -e "  ${CYAN}12)${NC} Clone repo or file"
+        echo -e "  ${CYAN}13)${NC} Exit"
         echo
 
-        read -rp "Enter your choice [1-12]: " choice
+        read -rp "Enter your choice [1-13]: " choice
         echo
 
         case "$choice" in
@@ -862,7 +863,12 @@ show_interactive_menu() {
             9)  list_repos_for_account ;;
             10) interactive_delete ;;
             11) launch_tui ;;
-            12)
+            12) interactive_clone ;;
+            13)
+                echo -e "${GREEN}Goodbye!${NC}"
+                exit 0
+                ;;
+            *)
                 echo -e "${GREEN}Goodbye!${NC}"
                 exit 0
                 ;;
@@ -1095,6 +1101,111 @@ interactive_delete() {
     DELETE_FILE="$file_path"
     COMMIT_MSG="$commit_msg"
     do_delete
+}
+
+interactive_clone() {
+    select_account || return
+
+    echo -e "${BOLD}Fetching repositories...${NC}"
+    local response
+    response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/user/repos?per_page=100")
+
+    if echo "$response" | grep -qE '^\{[[:space:]]*"message"'; then
+        log error "Failed to fetch repositories"
+        return
+    fi
+
+    local repo_names=()
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && repo_names+=("$line")
+    done < <(echo "$response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//')
+
+    if [[ ${#repo_names[@]} -eq 0 ]]; then
+        log error "No repositories found"
+        return
+    fi
+
+    echo -e "${BOLD}Select repository:${NC}"
+    echo
+    for i in "${!repo_names[@]}"; do
+        echo -e "  ${CYAN}$((i + 1)))${NC} ${repo_names[$i]}"
+    done
+    echo
+
+    read -rp "Enter your choice [1-${#repo_names[@]}]: " choice
+
+    if [[ -z "$choice" ]] || ! [[ "$choice" =~ ^[0-9]+$ ]] \
+        || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt ${#repo_names[@]} ]]; then
+        log error "Invalid selection"
+        return
+    fi
+
+    local selected_repo="${repo_names[$((choice - 1))]}"
+    echo -e "${GREEN}Selected: $selected_repo${NC}"
+    echo
+    echo -e "  ${CYAN}1)${NC} Clone entire repository"
+    echo -e "  ${CYAN}2)${NC} Clone specific file"
+    echo
+
+    read -rp "Enter your choice [1-2]: " clone_choice
+
+    if [[ "$clone_choice" == "1" ]]; then
+        local clone_url="https://github.com/$GITHUB_USERNAME/$selected_repo.git"
+        echo -e "${CYAN}[i]${NC} Cloning $clone_url ..."
+        if git clone "$clone_url"; then
+            log success "Repository cloned to: $selected_repo"
+        else
+            log error "Failed to clone repository"
+        fi
+    elif [[ "$clone_choice" == "2" ]]; then
+        local files_response
+        files_response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_USERNAME/$selected_repo/contents")
+
+        if echo "$files_response" | grep -qE '^\{[[:space:]]*"message"'; then
+            log error "Failed to fetch files"
+            return
+        fi
+
+        local file_names=()
+        while IFS= read -r file; do
+            [[ -n "$file" ]] && file_names+=("$file")
+        done < <(echo "$files_response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//')
+
+        if [[ ${#file_names[@]} -eq 0 ]]; then
+            log error "No files found in repository"
+            return
+        fi
+
+        echo -e "${BOLD}Select file to clone:${NC}"
+        echo
+        for i in "${!file_names[@]}"; do
+            local emoji
+            emoji=$(get_file_emoji "${file_names[$i]}")
+            echo -e "  ${CYAN}$((i + 1)))${NC} $emoji ${file_names[$i]}"
+        done
+        echo
+
+        read -rp "Enter your choice [1-${#file_names[@]}]: " file_choice
+
+        if [[ -z "$file_choice" ]] || ! [[ "$file_choice" =~ ^[0-9]+$ ]] \
+            || [[ "$file_choice" -lt 1 ]] || [[ "$file_choice" -gt ${#file_names[@]} ]]; then
+            log error "Invalid selection"
+            return
+        fi
+
+        local selected_file="${file_names[$((file_choice - 1))]}"
+        echo -e "${CYAN}[i]${NC} Downloading $selected_file ..."
+
+        local download_url="https://raw.githubusercontent.com/$GITHUB_USERNAME/$selected_repo/main/$selected_file"
+        if curl -sL "$download_url" -o "$selected_file"; then
+            log success "File cloned: $selected_file"
+        else
+            log error "Failed to clone file"
+        fi
+    else
+        log error "Invalid selection"
+    fi
 }
 
 show_help() {
