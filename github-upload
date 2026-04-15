@@ -938,10 +938,11 @@ show_interactive_menu() {
         echo -e "  ${CYAN}10)${NC} See graph (TUI - tree view)"
         echo -e "  ${CYAN}11)${NC} Clone repo or file"
         echo -e "  ${CYAN}12)${NC} Push (upload directory)"
-        echo -e "  ${CYAN}13)${NC} Exit"
+        echo -e "  ${CYAN}13)${NC} Make private/public"
+        echo -e "  ${CYAN}14)${NC} Exit"
         echo
 
-        read -rp "Enter your choice [1-13]: " choice
+        read -rp "Enter your choice [1-14]: " choice
         echo
 
         case "$choice" in
@@ -957,7 +958,8 @@ show_interactive_menu() {
             10) launch_tui ;;
             11) interactive_clone ;;
             12) interactive_upload_dir ;;
-            13)
+            13) toggle_repo_visibility ;;
+            14)
                 echo -e "${GREEN}Goodbye!${NC}"
                 exit 0
                 ;;
@@ -1190,6 +1192,71 @@ interactive_delete() {
     DELETE_FILE="$file_path"
     COMMIT_MSG="$commit_msg"
     do_delete
+}
+
+toggle_repo_visibility() {
+    select_account || return
+
+    read -rp "Repository (user/repo or just repo name): " repo
+    [[ -z "$repo" ]] && { log error "Repository required"; return; }
+
+    if [[ -z "${GITHUB_USERNAME:-}" ]]; then
+        GITHUB_USERNAME=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+    fi
+
+    [[ "$repo" != */* ]] && repo="$GITHUB_USERNAME/$repo"
+
+    local current_priv
+    current_priv=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/repos/$repo" | grep -o '"private": *[^,]*' | cut -d' ' -f2)
+
+    if [[ "$current_priv" == "true" ]]; then
+        echo "Current: PRIVATE"
+        read -rp "Make public? (y/N): " make_pub
+        if [[ "$make_pub" =~ ^[Yy]$ ]]; then
+            local json='{"private": false}'
+            local tmpfile
+            tmpfile=$(mktemp)
+            printf '%s' "$json" > "$tmpfile"
+
+            local resp
+            resp=$(curl -s -X PATCH \
+                -H "Authorization: Bearer $GITHUB_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                --data-binary "@$tmpfile" \
+                "https://api.github.com/repos/$repo")
+            rm -f "$tmpfile"
+
+            if echo "$resp" | grep -q '"private": false'; then
+                log success "Repository is now PUBLIC"
+            else
+                log error "Failed to change visibility"
+            fi
+        fi
+    else
+        echo "Current: PUBLIC"
+        read -rp "Make private? (y/N): " make_priv
+        if [[ "$make_priv" =~ ^[Yy]$ ]]; then
+            local json='{"private":true}'
+            local tmpfile
+            tmpfile=$(mktemp)
+            printf '%s' "$json" > "$tmpfile"
+
+            local resp
+            resp=$(curl -s -X PATCH \
+                -H "Authorization: Bearer $GITHUB_TOKEN" \
+                -H "Accept: application/vnd.github+json" \
+                --data-binary "@$tmpfile" \
+                "https://api.github.com/repos/$repo")
+            rm -f "$tmpfile"
+
+            if echo "$resp" | grep -q '"private": true'; then
+                log success "Repository is now PRIVATE"
+            else
+                log error "Failed to change visibility"
+            fi
+        fi
+    fi
 }
 
 interactive_clone() {
@@ -1477,7 +1544,7 @@ interactive_upload_dir() {
 show_help() {
     cat << 'HELPEOF'
 ╔══════════════════════════════════════════════════════════════════╗
-║        GitHub Direct Upload Tool v2.15                 ║
+║        GitHub Direct Upload Tool v2.16                 ║
 ║        Upload files to GitHub WITHOUT cloning!               ║
 ╚══════════════════════════════════════════════════════════════════╝
 
