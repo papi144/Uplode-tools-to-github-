@@ -229,11 +229,10 @@ load_account() {
 }
 
 verify_account() {
-    # FIX #15: Separate body from HTTP code using -o /dev/null -w pattern
-    local body code
-    body=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/user")
-    code=$(curl -s -o /dev/null -w "%{http_code}" \
-        -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/user")
+    local response
+    response=$(curl -s -w "\n%{http_code}" -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/user")
+    local code="${response##*$'\n'}"
+    local body="${response%$'\n'*}"
 
     if [[ "$code" == "200" ]]; then
         local username
@@ -369,7 +368,7 @@ upload_file() {
     tmpfile=$(mktemp)
     printf '%s' "$json" > "$tmpfile"
 
-    local api_url="https://api.github.com/repos/$repo/contents/$repo_path"
+local api_url="https://api.github.com/repos/$repo/contents/$repo_path"
 
     local http_code
     http_code=$(curl -s -o /tmp/upload_response.json -w "%{http_code}" -X PUT \
