@@ -1356,9 +1356,22 @@ interactive_upload_dir() {
         done < "$dir_path/.github-upload-ignore"
     fi
 
+    log info "Fetching existing files..."
+    local existing_files=()
+    local existing_response
+    existing_response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/repos/$repo/contents/$base_dir")
+
+    while IFS= read -r name; do
+        [[ -n "$name" ]] && existing_files+=("$name")
+    done < <(echo "$existing_response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//')
+
     log info "Checking files in: $dir_path"
     echo -e "${DIM}Ignoring: ${ignore_patterns[*]}${NC}"
     echo
+    echo -e "${CYAN}[i]${NC} Resume mode: comparing with existing files..."
+
+    local upload_count=0
 
     while IFS= read -r -d '' file; do
         local rel_path="${file#$dir_path/}"
@@ -1378,7 +1391,22 @@ interactive_upload_dir() {
         fi
 
         local repo_path="$base_dir/$rel_path"
+        local upload=true
 
+        for existing in "${existing_files[@]}"; do
+            if [[ "$existing" == "$rel_path" ]]; then
+                upload=false
+                break
+            fi
+        done
+
+        if [[ "$upload" == "false" ]]; then
+            log info "Skipped (unchanged): $repo_path"
+            skipped=$((skipped + 1))
+            continue
+        fi
+
+        upload_count=$((upload_count + 1))
         echo -e "${CYAN}${ARROW}${NC} Upload: ${PURPLE}$repo_path${NC}"
 
         if upload_file "$repo" "$file" "$repo_path" "$commit_msg"; then
@@ -1387,6 +1415,10 @@ interactive_upload_dir() {
             failed=$((failed + 1))
         fi
     done < <(find "$dir_path" -type f -print0)
+
+    if [[ $upload_count -eq 0 ]]; then
+        log info "All files already up to date!"
+    fi
 
     echo
     [[ $success -gt 0 ]] && log success "Uploaded $success file(s)"
@@ -1400,7 +1432,7 @@ interactive_upload_dir() {
 show_help() {
     cat << 'HELPEOF'
 ╔══════════════════════════════════════════════════════════════════╗
-║        GitHub Direct Upload Tool v2.8                 ║
+║        GitHub Direct Upload Tool v2.9                 ║
 ║        Upload files to GitHub WITHOUT cloning!               ║
 ╚══════════════════════════════════════════════════════════════════╝
 
