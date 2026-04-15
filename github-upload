@@ -16,6 +16,7 @@ CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/github-upload"
 DEFAULT_CONFIG="$CONFIG_DIR/config"
 ACCOUNTS_DIR="$CONFIG_DIR/accounts"
 MAX_FILE_SIZE=104857600  # 100MB in bytes
+LARGE_FILE_SIZE=1048576   # 1MB - files larger than this show progress
 
 # FIX #19: Only use colors if stdout is a TTY and NO_COLOR is not set
 if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
@@ -624,7 +625,10 @@ do_upload() {
     for file in "${FILES[@]}"; do
         current=$((current + 1))
         if [[ -f "$file" ]]; then
-            if [[ "$PROGRESS" == "true" ]] || [[ $total -gt 1 ]]; then
+            local file_size
+            file_size=$(stat -c%s "$file" 2>/dev/null) || file_size=$(stat -f%z "$file" 2>/dev/null)
+
+            if [[ "$PROGRESS" == "true" ]] || [[ $total -gt 1 ]] || [[ $file_size -gt $LARGE_FILE_SIZE ]]; then
                 show_progress "$current" "$total" "$file"
             else
                 [[ "$QUIET" != "true" ]] && echo -e "${CYAN}${ARROW}${NC} Upload: ${PURPLE}$(basename "$file")${NC}"
@@ -1432,7 +1436,10 @@ interactive_upload_dir() {
         upload_count=$((upload_count + 1))
         current=$((current + 1))
 
-        if [[ "$PROGRESS" == "true" ]] || [[ $upload_count -gt 1 ]]; then
+        local file_size
+        file_size=$(stat -c%s "$file" 2>/dev/null) || file_size=$(stat -f%z "$file" 2>/dev/null)
+
+        if [[ "$PROGRESS" == "true" ]] || [[ $upload_count -gt 1 ]] || [[ $file_size -gt $LARGE_FILE_SIZE ]]; then
             show_progress "$current" "$upload_count" "$file"
         else
             [[ "$QUIET" != "true" ]] && echo -e "${CYAN}${ARROW}${NC} Upload: ${PURPLE}$repo_path${NC}"
@@ -1465,7 +1472,7 @@ interactive_upload_dir() {
 show_help() {
     cat << 'HELPEOF'
 ╔══════════════════════════════════════════════════════════════════╗
-║        GitHub Direct Upload Tool v2.12                 ║
+║        GitHub Direct Upload Tool v2.13                 ║
 ║        Upload files to GitHub WITHOUT cloning!               ║
 ╚══════════════════════════════════════════════════════════════════╝
 
