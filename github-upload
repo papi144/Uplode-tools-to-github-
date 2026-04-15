@@ -102,27 +102,11 @@ list_repos_for_account() {
     echo -e "${BOLD}Name             Stars  Forks${NC}"
     echo -e "${CYAN}---------------------------------${NC}"
 
-    local repo_count=0
-    while IFS= read -r line; do
+    echo "$response" | grep -o '"name": "[^"]*"' | while read -r line; do
         local name
-        name=$(echo "$line" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//' | head -1)
-        [[ -z "$name" ]] && continue
-        repo_count=1
-
-        local stars_forks
-        stars_forks=$(echo "$line" | grep -o '"stargazers_count": [0-9]*' | sed 's/"stargazers_count": //')
-        local forks
-        forks=$(echo "$line" | grep -o '"forks_count": [0-9]*' | sed 's/"forks_count": //')
-
-        [[ -z "$stars_forks" ]] && stars_forks="0"
-        [[ -z "$forks" ]] && forks="0"
-
-        printf "%-15s %6s %6s\n" "$name" "$stars_forks" "$forks"
-    done < <(echo "$response" | grep -o '{[^}]*}' | grep '"name"')
-
-    if [[ $repo_count -eq 0 ]]; then
-        log warn "No repositories found"
-    fi
+        name=$(echo "$line" | sed 's/"name": "//;s/"$//')
+        echo "$name"
+    done
 }
 
 show_progress() {
@@ -1172,36 +1156,10 @@ interactive_list() {
     echo -e "${BOLD}Files in $repo${NC}"
     echo -e "${CYAN}------------------------${NC}"
 
-    local has_files=0
-    while IFS= read -r line; do
-        local name
-        name=$(echo "$line" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//' | head -1)
-        [[ -z "$name" ]] && continue
-        has_files=1
-
-        local size_info
-        size_info=$(echo "$line" | grep -o '"size": [0-9]*' | sed 's/"size": //')
-        local size_display="<dir>"
-
-        if [[ -n "$size_info" ]]; then
-            case $size_info in
-                ''|*[!0-9]*) size_display="<dir>" ;;
-                *) 
-                    if [[ $size_info -gt 1048576 ]]; then
-                        size_display="$((size_info / 1048576))MB"
-                    elif [[ $size_info -gt 1024 ]]; then
-                        size_display="$((size_info / 1024))KB"
-                    else
-                        size_display="${size_info}B"
-                    fi
-                    ;;
-            esac
-        fi
-
-        printf "  %-15s %s\n" "$name" "$size_display"
-    done < <(echo "$response" | grep -o '{[^}]*}' | grep '"name"')
-
-    [[ $has_files -eq 0 ]] && echo "(empty)"
+    echo "$response" | grep -o '"name": "[^"]*"' | while read -r line; do
+        name=$(echo "$line" | sed 's/"name": "//;s/"$//')
+        echo "  $name"
+    done
 }
 
 interactive_create_repo() {
