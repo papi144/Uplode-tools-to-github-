@@ -1461,45 +1461,33 @@ secret_scan() {
 
     [[ "$repo" != */* ]] && repo="$GITHUB_USERNAME/$repo"
 
-    echo -e "${YELLOW}[!] Scanning for secrets in $repo...${NC}"
+    echo -e "${YELLOW}Scanning for secrets in $repo...${NC}"
 
     local patterns=(
-        "ghp_[a-zA-Z0-9]{36}"
-        "github_pat_[a-zA-Z0-9]{22,}"
-        "AKIA[0-9A-Z]{16}"
-        "sk-[a-zA-Z0-9]{20,}"
-        "xox[baprs]-[a-zA-Z0-9]{10,}"
-        "-----BEGIN [RDSA ]?PRIVATE KEY-----"
+        "ghp_"
+        "github_pat_"
+        "AKIA"
+        "sk-"
+        "xox"
     )
 
     local found=0
+    local files_response
+    files_response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/repos/$repo/contents")
 
     for pattern in "${patterns[@]}"; do
-        local pattern_name="$pattern"
-        [[ "$pattern" == "ghp_[a-zA-Z0-9]{36}" ]] && pattern_name="GitHub Token"
-        [[ "$pattern" == "github_pat_[a-zA-Z0-9]{22,}" ]] && pattern_name="GitHub PAT"
-        [[ "$pattern" == "AKIA[0-9A-Z]{16}" ]] && pattern_name="AWS Key"
-        [[ "$pattern" == "sk-[a-zA-Z0-9]{20,}" ]] && pattern_name="OpenAI Key"
-        [[ "$pattern" == "xox[baprs]-[a-zA-Z0-9]{10,}" ]] && pattern_name="GitHub OAuth"
-        [[ "$pattern" == "-----BEGIN [RDSA ]?PRIVATE KEY-----" ]] && pattern_name="Private Key"
-
-        local matches
-        matches=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
-            "https://api.github.com/repos/$repo/contents" | grep -i "$pattern")
-
-        if [[ -n "$matches" ]]; then
-            echo -e "${RED}[!] Found: $pattern_name${NC}"
+        if echo "$files_response" | grep -qi "$pattern"; then
+            echo -e "${RED}[!] Found: contains $pattern${NC}"
             found=1
         fi
     done
 
     echo
     if [[ "$found" == "0" ]]; then
-        echo -e "${GREEN}✓ Scan complete - No secrets found${NC}"
-        echo -e "${DIM}Note: Basic scan. Manual review recommended.${NC}"
+        echo -e "${GREEN}✓ No secrets found${NC}"
     else
-        echo -e "${YELLOW}[!] Warning: Secrets detected!${NC}"
-        echo -e "${RED}Rotate exposed secrets immediately!${NC}"
+        echo -e "${YELLOW}[!] Possible secrets - review manually!${NC}"
     fi
 }
 
