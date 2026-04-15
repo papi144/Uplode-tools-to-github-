@@ -370,6 +370,9 @@ upload_file() {
 
     local api_url="https://api.github.com/repos/$repo/contents/$repo_path"
 
+    log info "JSON payload: $json"
+    log info "API URL: $api_url"
+
     local http_code
     http_code=$(curl -s -o /tmp/upload_response.json -w "%{http_code}" -X PUT \
         -H "Authorization: Bearer $GITHUB_TOKEN" \
@@ -377,6 +380,8 @@ upload_file() {
         -H "Content-Type: application/json" \
         --data-binary "@$tmpfile" \
         "$api_url")
+
+    log info "Response: $(cat /tmp/upload_response.json)"
     local body
     body=$(cat /tmp/upload_response.json)
     rm -f "$tmpfile" /tmp/upload_response.json
