@@ -1492,12 +1492,17 @@ interactive_view_file() {
 
     local decoded
     if base64 --help 2>&1 | grep -q '\-d'; then
-        decoded=$(echo "$content" | base64 -d)
+        decoded=$(echo "$content" | base64 -d 2>/dev/null)
     else
-        decoded=$(echo "$content" | base64 -D)
+        decoded=$(echo "$content" | base64 -D 2>/dev/null)
     fi
 
-    echo "$decoded"
+    if [[ -z "$decoded" || "$decoded" == "$content" ]]; then
+        log warn "File may be binary or too large to display"
+        echo "$content"
+    else
+        echo "$decoded"
+    fi
 }
 
 secret_scan() {
