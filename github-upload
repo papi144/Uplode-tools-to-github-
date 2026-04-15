@@ -845,7 +845,7 @@ show_interactive_menu() {
         echo -e "  ${CYAN}10)${NC} Delete file from repository"
         echo -e "  ${CYAN}11)${NC} See graph (TUI - tree view)"
         echo -e "  ${CYAN}12)${NC} Clone repo or file"
-        echo -e "  ${CYAN}13)${NC} Upload directory"
+        echo -e "  ${CYAN}13)${NC} Push (upload directory)"
         echo -e "  ${CYAN}14)${NC} Exit"
         echo
 
