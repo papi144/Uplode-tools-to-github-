@@ -1380,6 +1380,14 @@ interactive_upload_dir() {
     echo
     echo -e "${CYAN}[i]${NC} Resume mode: comparing with existing files..."
 
+    local total_files=0
+    while IFS= read -r -d '' f; do
+        total_files=$((total_files + 1))
+    done < <(find "$dir_path" -type f -print0)
+    log info "Total files to check: $total_files"
+
+    local current=0
+
     local upload_count=0
 
     while IFS= read -r -d '' file; do
@@ -1422,7 +1430,13 @@ interactive_upload_dir() {
         fi
 
         upload_count=$((upload_count + 1))
-        echo -e "${CYAN}${ARROW}${NC} Upload: ${PURPLE}$repo_path${NC}"
+        current=$((current + 1))
+
+        [[ "$PROGRESS" == "true" ]] && show_progress "$current" "$upload_count" "$file"
+
+        if [[ "$QUIET" != "true" && "$PROGRESS" != "true" ]]; then
+            echo -e "${CYAN}${ARROW}${NC} Upload: ${PURPLE}$repo_path${NC}"
+        fi
 
         if upload_file "$repo" "$file" "$repo_path" "$commit_msg"; then
             success=$((success + 1))
@@ -1435,6 +1449,7 @@ interactive_upload_dir() {
         log info "All files already up to date!"
     fi
 
+    [[ "$PROGRESS" == "true" ]] && echo
     echo
     [[ $success -gt 0 ]] && log success "Uploaded $success file(s)"
     [[ $skipped -gt 0 ]] && log warn "Skipped: $skipped file(s)"
@@ -1447,7 +1462,7 @@ interactive_upload_dir() {
 show_help() {
     cat << 'HELPEOF'
 ╔══════════════════════════════════════════════════════════════════╗
-║        GitHub Direct Upload Tool v2.10                 ║
+║        GitHub Direct Upload Tool v2.11                 ║
 ║        Upload files to GitHub WITHOUT cloning!               ║
 ╚══════════════════════════════════════════════════════════════════╝
 
