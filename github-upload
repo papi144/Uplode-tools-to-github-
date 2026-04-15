@@ -344,9 +344,6 @@ upload_file() {
         "https://api.github.com/repos/$repo/contents/$repo_path")
     existing_sha=$(jq_safe "$sha_response" ".sha")
 
-    log info "SHA response: $sha_response"
-    log info "Extracted SHA: $existing_sha"
-
     if [[ -n "$existing_sha" && "$existing_sha" != "null" ]]; then
         sha="$existing_sha"
         log info "File exists, updating..."
@@ -370,8 +367,9 @@ upload_file() {
 
     local api_url="https://api.github.com/repos/$repo/contents/$repo_path"
 
-    log info "JSON payload: $json"
-    log info "API URL: $api_url"
+    log info "Token prefix: ${GITHUB_TOKEN:0:5}..."
+    log info "Repo: $repo"
+    log info "Path: $repo_path"
 
     local http_code
     http_code=$(curl -s -o /tmp/upload_response.json -w "%{http_code}" -X PUT \
@@ -381,9 +379,9 @@ upload_file() {
         --data-binary "@$tmpfile" \
         "$api_url")
 
-    log info "Response: $(cat /tmp/upload_response.json)"
     local body
     body=$(cat /tmp/upload_response.json)
+    log info "Response: $body"
     rm -f "$tmpfile" /tmp/upload_response.json
 
     if [[ "$http_code" == "200" ]] || [[ "$http_code" == "201" ]]; then
