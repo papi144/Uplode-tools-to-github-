@@ -367,18 +367,18 @@ upload_file() {
 
     local api_url="https://api.github.com/repos/$repo/contents/$repo_path"
 
-    local body
-    body=$(curl -s -w "\n%{http_code}" -X PUT \
+    local http_code
+    http_code=$(curl -s -o /tmp/upload_response.json -w "%{http_code}" -X PUT \
         -H "Authorization: Bearer $GITHUB_TOKEN" \
         -H "Accept: application/vnd.github+json" \
         -H "Content-Type: application/json" \
         --data-binary "@$tmpfile" \
         "$api_url")
-    local code="${body##*$'\n'}"
-    body="${body%$'\n'*}"
-    rm -f "$tmpfile"
+    local body
+    body=$(cat /tmp/upload_response.json)
+    rm -f "$tmpfile" /tmp/upload_response.json
 
-    if [[ "$code" == "200" ]] || [[ "$code" == "201" ]]; then
+    if [[ "$http_code" == "200" ]] || [[ "$http_code" == "201" ]]; then
         log success "Uploaded: $repo_path"
         return 0
     else
@@ -409,18 +409,18 @@ delete_file() {
     tmpfile=$(mktemp)
     printf '{"message":"%s","sha":"%s"}' "$commit_msg" "$sha" > "$tmpfile"
 
-    local body
-    body=$(curl -s -w "\n%{http_code}" -X DELETE \
+    local http_code
+    http_code=$(curl -s -o /tmp/delete_response.json -w "%{http_code}" -X DELETE \
         -H "Authorization: Bearer $GITHUB_TOKEN" \
         -H "Accept: application/vnd.github+json" \
         -H "Content-Type: application/json" \
         --data-binary "@$tmpfile" \
         "https://api.github.com/repos/$repo/contents/$repo_path")
-    local code="${body##*$'\n'}"
-    body="${body%$'\n'*}"
-    rm -f "$tmpfile"
+    local body
+    body=$(cat /tmp/delete_response.json)
+    rm -f "$tmpfile" /tmp/delete_response.json
 
-    if [[ "$code" == "200" ]] || [[ "$code" == "204" ]]; then
+    if [[ "$http_code" == "200" ]] || [[ "$http_code" == "204" ]]; then
         log success "Deleted: $repo_path"
         return 0
     else
