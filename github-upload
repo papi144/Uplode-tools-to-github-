@@ -844,16 +844,15 @@ show_interactive_menu() {
         echo -e "  ${CYAN}5)${NC}  Upload file(s)"
         echo -e "  ${CYAN}6)${NC}  List files in repository"
         echo -e "  ${CYAN}7)${NC}  Create new repository"
-        echo -e "  ${CYAN}8)${NC}  List my repositories"
-        echo -e "  ${CYAN}9)${NC}  List repos for specific account"
-        echo -e "  ${CYAN}10)${NC} Delete file from repository"
-        echo -e "  ${CYAN}11)${NC} See graph (TUI - tree view)"
-        echo -e "  ${CYAN}12)${NC} Clone repo or file"
-        echo -e "  ${CYAN}13)${NC} Push (upload directory)"
-        echo -e "  ${CYAN}14)${NC} Exit"
+        echo -e "  ${CYAN}8)${NC}  List repositories"
+        echo -e "  ${CYAN}9)${NC}  Delete file from repository"
+        echo -e "  ${CYAN}10)${NC} See graph (TUI - tree view)"
+        echo -e "  ${CYAN}11)${NC} Clone repo or file"
+        echo -e "  ${CYAN}12)${NC} Push (upload directory)"
+        echo -e "  ${CYAN}13)${NC} Exit"
         echo
 
-        read -rp "Enter your choice [1-14]: " choice
+        read -rp "Enter your choice [1-13]: " choice
         echo
 
         case "$choice" in
@@ -864,13 +863,12 @@ show_interactive_menu() {
             5)  interactive_upload ;;
             6)  interactive_list ;;
             7)  interactive_create_repo ;;
-            8)  handle_list_repos_menu ;;
-            9)  list_repos_for_account ;;
-            10) interactive_delete ;;
-            11) launch_tui ;;
-            12) interactive_clone ;;
-            13) interactive_upload_dir ;;
-            14)
+            8)  list_repos_for_account ;;
+            9)  interactive_delete ;;
+            10) launch_tui ;;
+            11) interactive_clone ;;
+            12) interactive_upload_dir ;;
+            13)
                 echo -e "${GREEN}Goodbye!${NC}"
                 exit 0
                 ;;
