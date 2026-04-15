@@ -1355,18 +1355,26 @@ interactive_move_cross_repo() {
     read -rp "From repository: " from_repo
     [[ -z "$from_repo" ]] && { log error "From repository required"; return; }
 
-    read -rp "To repository: " to_repo
-    [[ -z "$to_repo" ]] && { log error "To repository required"; return; }
-
     read -rp "File path in source repo: " file_path
     [[ -z "$file_path" ]] && { log error "File path required"; return; }
 
-    if [[ -z "${GITHUB_USERNAME:-}" ]]; then
-        GITHUB_USERNAME=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
-    fi
+    read -rp "To repository: " to_repo
+    [[ -z "$to_repo" ]] && { log error "To repository required"; return; }
+
+    read -rp "Use different account? (y/N): " diff_account
+    [[ -z "${GITHUB_USERNAME:-}" ]] && GITHUB_USERNAME=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
 
     [[ "$from_repo" != */* ]] && from_repo="$GITHUB_USERNAME/$from_repo"
     [[ "$to_repo" != */* ]] && to_repo="$GITHUB_USERNAME/$to_repo"
+
+    local token="$GITHUB_TOKEN"
+    local username="$GITHUB_USERNAME"
+
+    if [[ "$diff_account" =~ ^[Yy]$ ]]; then
+        select_account || return
+        token="$GITHUB_TOKEN"
+        username="$GITHUB_USERNAME"
+    fi
 
     log info "Downloading from $from_repo..."
 
@@ -1398,7 +1406,7 @@ interactive_move_cross_repo() {
 
     local tmpfile
     tmpfile=$(mktemp)
-    printf '{"message":"Move %s from %s","content":"%s","sha":""}' "$file_path" "$from_repo" "$content" > "$tmpfile"
+    printf '{"message":"Move %s","content":"%s"}' "$file_path" "$content" > "$tmpfile"
 
     local http_code
     http_code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
@@ -1410,7 +1418,7 @@ interactive_move_cross_repo() {
     rm -f "$tmpfile"
 
     if [[ "$http_code" != "201" && "$http_code" != "200" ]]; then
-        log error "Failed to upload to $to_repo"
+        log error "Failed to upload (HTTP $http_code)"
         return
     fi
 
@@ -1429,13 +1437,12 @@ interactive_move_cross_repo() {
         rm -f "$del_tmpfile"
 
         if [[ "$del_code" == "200" || "$del_code" == "204" ]]; then
-            log success "Moved: $from_repo/$file_path → $to_repo/$new_path"
+            log success "Moved: $from_repo → $to_repo"
         else
             log warn "Uploaded but failed to delete original"
         fi
     else
-        log success "Uploaded to: $to_repo/$new_path"
-        log info "Original file kept in $from_repo"
+        log success "Copied to: $to_repo/$new_path"
     fi
 }
 
@@ -1724,7 +1731,7 @@ interactive_upload_dir() {
 show_help() {
     cat << 'HELPEOF'
 ╔══════════════════════════════════════════════════════════════════╗
-║        GitHub Direct Upload Tool v2.18                 ║
+║        GitHub Direct Upload Tool v2.19                 ║
 ║        Upload files to GitHub WITHOUT cloning!               ║
 ╚══════════════════════════════════════════════════════════════════╝
 
