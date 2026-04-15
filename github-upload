@@ -845,10 +845,11 @@ show_interactive_menu() {
         echo -e "  ${CYAN}10)${NC} Delete file from repository"
         echo -e "  ${CYAN}11)${NC} See graph (TUI - tree view)"
         echo -e "  ${CYAN}12)${NC} Clone repo or file"
-        echo -e "  ${CYAN}13)${NC} Exit"
+        echo -e "  ${CYAN}13)${NC} Upload directory"
+        echo -e "  ${CYAN}14)${NC} Exit"
         echo
 
-        read -rp "Enter your choice [1-13]: " choice
+        read -rp "Enter your choice [1-14]: " choice
         echo
 
         case "$choice" in
@@ -862,6 +863,14 @@ show_interactive_menu() {
             8)  handle_list_repos_menu ;;
             9)  list_repos_for_account ;;
             10) interactive_delete ;;
+            11) launch_tui ;;
+            12) interactive_clone ;;
+            13) interactive_upload_dir ;;
+            14)
+                echo -e "${GREEN}Goodbye!${NC}"
+                exit 0
+                ;;
+            *)
             11) launch_tui ;;
             12) interactive_clone ;;
             13)
@@ -1206,6 +1215,72 @@ interactive_clone() {
     else
         log error "Invalid selection"
     fi
+}
+
+interactive_upload_dir() {
+    select_account || return
+
+    read -rp "Repository (user/repo or just repo name): " repo
+    [[ -z "$repo" ]] && { log error "Repository required"; return; }
+
+    read -rp "Directory path to upload: " dir_path
+    [[ -z "$dir_path" ]] && { log error "Directory path required"; return; }
+
+    if [[ ! -d "$dir_path" ]]; then
+        log error "Directory not found: $dir_path"
+        return
+    fi
+
+    if [[ -z "${GITHUB_USERNAME:-}" ]]; then
+        GITHUB_USERNAME=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+    fi
+
+    [[ "$repo" != */* ]] && repo="$GITHUB_USERNAME/$repo"
+
+    read -rp "Commit message (optional): " commit_msg
+    [[ -z "$commit_msg" ]] && commit_msg="Upload $(basename "$dir_path")"
+
+    local code
+    code=$(check_repo "$repo")
+
+    if [[ "$code" == "404" ]]; then
+        read -rp "Repository not found. Create it? (y/N): " create_it
+        if [[ "$create_it" =~ ^[Yy]$ ]]; then
+            local owner="${repo%%/*}"
+            local name="${repo##*/}"
+            create_repo "$owner" "$name" "false" ""
+        else
+            return
+        fi
+    elif [[ "$code" != "200" ]]; then
+        log error "Cannot access repository: $repo (HTTP $code)"
+        return
+    fi
+
+    local base_dir
+    base_dir=$(basename "$dir_path")
+    local success=0
+    local failed=0
+
+    while IFS= read -r -d '' file; do
+        local rel_path="${file#$dir_path/}"
+        local repo_path="$base_dir/$rel_path"
+
+        echo -e "${CYAN}${ARROW}${NC} Upload: ${PURPLE}$repo_path${NC}"
+
+        if upload_file "$repo" "$file" "$repo_path" "$commit_msg"; then
+            success=$((success + 1))
+        else
+            failed=$((failed + 1))
+        fi
+    done < <(find "$dir_path" -type f -print0)
+
+    echo
+    [[ $success -gt 0 ]] && log success "Uploaded $success file(s)"
+    [[ $failed -gt 0 ]] && log warn "Failed: $failed file(s)"
+    [[ $success -gt 0 ]] && echo -e "${GREEN}View at: https://github.com/$repo${NC}"
+
+    [[ $failed -gt 0 ]] && exit 1
 }
 
 show_help() {
