@@ -111,7 +111,18 @@ show_progress() {
     if [[ $hashes -gt 0 ]]; then
         bar=$(printf '#%.0s' $(seq 1 $hashes))
     fi
-    printf "\r${GREEN}[%-50s${NC}] %3d%% (%d/%d) %s" "$bar" "$percent" "$current" "$total" "$(basename "$file")"
+
+    local file_size
+    file_size=$(stat -c%s "$file" 2>/dev/null) || file_size=$(stat -f%z "$file" 2>/dev/null)
+
+    local size_mb=$((file_size / 1048576))
+    local total_mb=$((total * file_size / 1048576))
+
+    if [[ $total -gt 1 ]]; then
+        printf "\r${GREEN}[%-50s${NC}] %3d%% (%d/%d) %s (%dMB)" "$bar" "$percent" "$current" "$total" "$(basename "$file")" "$size_mb"
+    else
+        printf "\r${GREEN}[%-50s${NC}] %3d%% %s (%dMB)" "$bar" "$percent" "$(basename "$file")" "$size_mb"
+    fi
 }
 
 get_mime_type() {
@@ -375,8 +386,14 @@ upload_file() {
 
 local api_url="https://api.github.com/repos/$repo/contents/$repo_path"
 
+    local curl_opts="-s -o /tmp/upload_response.json"
+    if [[ $file_size -gt $LARGE_FILE_SIZE ]]; then
+        curl_opts="$curl_opts --progress-bar"
+    fi
+    curl_opts="$curl_opts -w \"%{http_code}\""
+
     local http_code
-    http_code=$(curl -s -o /tmp/upload_response.json -w "%{http_code}" -X PUT \
+    http_code=$(eval curl $curl_opts -X PUT \
         -H "Authorization: Bearer $GITHUB_TOKEN" \
         -H "Accept: application/vnd.github+json" \
         -H "Content-Type: application/json" \
@@ -1472,7 +1489,7 @@ interactive_upload_dir() {
 show_help() {
     cat << 'HELPEOF'
 ╔══════════════════════════════════════════════════════════════════╗
-║        GitHub Direct Upload Tool v2.13                 ║
+║        GitHub Direct Upload Tool v2.14                 ║
 ║        Upload files to GitHub WITHOUT cloning!               ║
 ╚══════════════════════════════════════════════════════════════════╝
 
