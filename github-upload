@@ -68,10 +68,10 @@ jq_safe() {
         case "$query" in
             # FIX #9: Added .object.sha support to jq_safe fallback
             ".object.sha")
-                echo "$json" | grep -o '"sha":"[^"]*"' | head -1 | cut -d'"' -f4
+                echo "$json" | sed -n 's/.*"sha": *"\([^"]*\)".*/\1/p'
                 ;;
             ".sha")
-                echo "$json" | grep -o '"sha":"[^"]*"' | head -1 | cut -d'"' -f4
+                echo "$json" | sed -n 's/.*"sha": *"\([^"]*\)".*/\1/p'
                 ;;
             ".message")
                 echo "$json" | grep -o '"message":"[^"]*"' | head -1 | cut -d'"' -f4
