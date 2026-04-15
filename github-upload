@@ -106,12 +106,11 @@ show_progress() {
     local file=$3
     local percent=$((current * 100 / total))
     local hashes=$((percent / 2))
-    # FIX #3: Guard against hashes=0 so seq 1 0 is never called
     local bar=""
     if [[ $hashes -gt 0 ]]; then
         bar=$(printf '#%.0s' $(seq 1 $hashes))
     fi
-    printf "\r${GREEN}[%-50s${NC}] %3d%% %s" "$bar" "$percent" "$(basename "$file")"
+    printf "\r${GREEN}[%-50s${NC}] %3d%% (%d/%d) %s" "$bar" "$percent" "$current" "$total" "$(basename "$file")"
 }
 
 get_mime_type() {
@@ -325,8 +324,13 @@ upload_file() {
         || { log error "Cannot determine file size for: $file_path"; return 1; }
 
     if [[ $file_size -gt $MAX_FILE_SIZE ]]; then
-        log error "File too large: $file_size bytes (max: $MAX_FILE_SIZE bytes / 100MB)"
-        return 1
+        log warn "File too large for contents API: $file_size bytes"
+        log info "Uploading via GitHub Releases..."
+        if upload_to_release "$repo" "$file_path" "$repo_path" "$commit_msg"; then
+            return 0
+        else
+            return 1
+        fi
     fi
 
     # FIX #18: Portable base64 — detect flag support, strip newlines on macOS
@@ -390,6 +394,82 @@ local api_url="https://api.github.com/repos/$repo/contents/$repo_path"
         msg=$(jq_safe "$body" ".message")
         [[ -z "$msg" ]] && msg="Unknown error"
         log error "Failed: $msg"
+        return 1
+    fi
+}
+
+upload_to_release() {
+    local repo="$1"
+    local file_path="$2"
+    local file_name="${3:-$(basename "$file_path")}"
+    local commit_msg="${4:-Upload $file_name to release}"
+
+    if [[ ! -f "$file_path" ]]; then
+        log error "File not found: $file_path"
+        return 1
+    fi
+
+    local file_size
+    file_size=$(stat -c%s "$file_path" 2>/dev/null) || file_size=$(stat -f%z "$file_path" 2>/dev/null)
+
+    local owner="${repo%%/*}"
+    local reponame="${repo##*/}"
+
+    log info "Creating release..."
+
+    local release_json
+    release_json=$(printf '{"tag_name":"v%s","name":"%s release","draft":false}' "$file_name" "$file_name")
+    local tmpfile
+    tmpfile=$(mktemp)
+    printf '%s' "$release_json" > "$tmpfile"
+
+    local release_resp
+    release_resp=$(curl -s -X POST \
+        -H "Authorization: Bearer $GITHUB_TOKEN" \
+        -H "Accept: application/vnd.github+json" \
+        --data-binary "@$tmpfile" \
+        "https://api.github.com/repos/$owner/$reponame/releases")
+    rm -f "$tmpfile"
+
+    local release_id
+    release_id=$(echo "$release_resp" | sed -n 's/.*"id": *\([0-9]*\).*/\1/p')
+
+    if [[ -z "$release_id" || "$release_id" == "null" ]]; then
+        local existing
+        existing=$(curl -s -X GET \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            "https://api.github.com/repos/$owner/$reponame/releases/tags/$file_name")
+        release_id=$(echo "$existing" | sed -n 's/.*"id": *\([0-9]*\).*/\1/p')
+    fi
+
+    if [[ -z "$release_id" || "$release_id" == "null" ]]; then
+        log error "Failed to create/get release"
+        return 1
+    fi
+
+    log info "Uploading to release..."
+
+    local upload_url="https://uploads.github.com/repos/$owner/$reponame/releases/$release_id/assets?name=$file_name"
+
+    local content_type
+    content_type=$(get_mime_type "$file_path")
+
+    local upload_resp
+    upload_resp=$(curl -s -X POST \
+        -H "Authorization: Bearer $GITHUB_TOKEN" \
+        -H "Accept: application/vnd.github+json" \
+        -H "Content-Type: $content_type" \
+        --data-binary "@$file_path" \
+        "$upload_url")
+
+    if echo "$upload_resp" | grep -q '"browser_download_url"'; then
+        local download_url
+        download_url=$(echo "$upload_resp" | sed -n 's/.*"browser_download_url": *"\([^"]*\)".*/\1/p')
+        log success "Uploaded to release: $download_url"
+        return 0
+    else
+        log error "Release upload failed"
         return 1
     fi
 }
@@ -1252,9 +1332,51 @@ interactive_upload_dir() {
     base_dir=$(basename "$dir_path")
     local success=0
     local failed=0
+    local skipped=0
+
+    local ignore_patterns=(
+        ".git"
+        "node_modules"
+        ".DS_Store"
+        "Thumbs.db"
+        "*.log"
+        ".env"
+        ".env.local"
+        "__pycache__"
+        "*.pyc"
+        ".gradle"
+        "build/"
+        "*.apk"
+        "*.aab"
+    )
+
+    if [[ -f "$dir_path/.github-upload-ignore" ]]; then
+        while IFS= read -r pattern; do
+            [[ -n "$pattern" && ! "$pattern" =~ ^# ]] && ignore_patterns+=("$pattern")
+        done < "$dir_path/.github-upload-ignore"
+    fi
+
+    log info "Checking files in: $dir_path"
+    echo -e "${DIM}Ignoring: ${ignore_patterns[*]}${NC}"
+    echo
 
     while IFS= read -r -d '' file; do
         local rel_path="${file#$dir_path/}"
+        local filename=$(basename "$file")
+        local skip=false
+
+        for pattern in "${ignore_patterns[@]}"; do
+            if [[ "$rel_path" == *"$pattern"* ]] || [[ "$filename" == $pattern ]]; then
+                skip=true
+                break
+            fi
+        done
+
+        if [[ "$skip" == "true" ]]; then
+            skipped=$((skipped + 1))
+            continue
+        fi
+
         local repo_path="$base_dir/$rel_path"
 
         echo -e "${CYAN}${ARROW}${NC} Upload: ${PURPLE}$repo_path${NC}"
@@ -1268,7 +1390,8 @@ interactive_upload_dir() {
 
     echo
     [[ $success -gt 0 ]] && log success "Uploaded $success file(s)"
-    [[ $failed -gt 0 ]] && log warn "Failed: $failed file(s)"
+    [[ $skipped -gt 0 ]] && log warn "Skipped: $skipped file(s)"
+    [[ $failed -gt 0 ]] && log error "Failed: $failed file(s)"
     [[ $success -gt 0 ]] && echo -e "${GREEN}View at: https://github.com/$repo${NC}"
 
     [[ $failed -gt 0 ]] && exit 1
