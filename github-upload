@@ -84,10 +84,10 @@ jq_safe() {
 }
 
 handle_list_repos_menu() {
-    . "$DEFAULT_CONFIG" 2>/dev/null || { log error "No account configured"; return; }
+    select_account || return
     local response
     response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/user/repos?per_page=100")
-    echo -e "${BOLD}Your repositories:${NC}"
+    echo -e "${BOLD}Repositories for $GITHUB_USERNAME:${NC}"
     echo "$response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//'
 }
 
@@ -367,19 +367,15 @@ upload_file() {
 
     local api_url="https://api.github.com/repos/$repo/contents/$repo_path"
 
-    local body code
-    body=$(curl -s -X PUT \
+    local body
+    body=$(curl -s -w "\n%{http_code}" -X PUT \
         -H "Authorization: Bearer $GITHUB_TOKEN" \
         -H "Accept: application/vnd.github+json" \
         -H "Content-Type: application/json" \
         --data-binary "@$tmpfile" \
         "$api_url")
-    code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
-        -H "Authorization: Bearer $GITHUB_TOKEN" \
-        -H "Accept: application/vnd.github+json" \
-        -H "Content-Type: application/json" \
-        --data-binary "@$tmpfile" \
-        "$api_url")
+    local code="${body##*$'\n'}"
+    body="${body%$'\n'*}"
     rm -f "$tmpfile"
 
     if [[ "$code" == "200" ]] || [[ "$code" == "201" ]]; then
@@ -413,19 +409,15 @@ delete_file() {
     tmpfile=$(mktemp)
     printf '{"message":"%s","sha":"%s"}' "$commit_msg" "$sha" > "$tmpfile"
 
-    local body code
-    body=$(curl -s -X DELETE \
+    local body
+    body=$(curl -s -w "\n%{http_code}" -X DELETE \
         -H "Authorization: Bearer $GITHUB_TOKEN" \
         -H "Accept: application/vnd.github+json" \
         -H "Content-Type: application/json" \
         --data-binary "@$tmpfile" \
         "https://api.github.com/repos/$repo/contents/$repo_path")
-    code=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
-        -H "Authorization: Bearer $GITHUB_TOKEN" \
-        -H "Accept: application/vnd.github+json" \
-        -H "Content-Type: application/json" \
-        --data-binary "@$tmpfile" \
-        "https://api.github.com/repos/$repo/contents/$repo_path")
+    local code="${body##*$'\n'}"
+    body="${body%$'\n'*}"
     rm -f "$tmpfile"
 
     if [[ "$code" == "200" ]] || [[ "$code" == "204" ]]; then
