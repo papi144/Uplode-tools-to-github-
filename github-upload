@@ -1356,15 +1356,24 @@ interactive_upload_dir() {
         done < "$dir_path/.github-upload-ignore"
     fi
 
-    log info "Fetching existing files..."
-    local existing_files=()
+    log info "Fetching existing files and sizes..."
+    declare -A existing_sizes
     local existing_response
     existing_response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
         "https://api.github.com/repos/$repo/contents/$base_dir")
 
-    while IFS= read -r name; do
-        [[ -n "$name" ]] && existing_files+=("$name")
-    done < <(echo "$existing_response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//')
+    while IFS= read -r line; do
+        local name size
+        name=$(echo "$line" | sed -n 's/.*"name": *"\([^"]*\)".*/\1/p')
+        size=$(echo "$line" | sed -n 's/.*"size": *\([0-9]*\).*/\1/p')
+        if [[ -n "$name" && -n "$size" ]]; then
+            existing_sizes["$name"]="$size"
+        fi
+    done < <(echo "$existing_response" | grep -o '{[^}]*}')
+
+    for existing in "${!existing_sizes[@]}"; do
+        log info "Found: $existing (${existing_sizes[$existing]} bytes)"
+    done
 
     log info "Checking files in: $dir_path"
     echo -e "${DIM}Ignoring: ${ignore_patterns[*]}${NC}"
@@ -1393,12 +1402,18 @@ interactive_upload_dir() {
         local repo_path="$base_dir/$rel_path"
         local upload=true
 
-        for existing in "${existing_files[@]}"; do
-            if [[ "$existing" == "$rel_path" ]]; then
+        local local_size
+        local_size=$(stat -c%s "$file" 2>/dev/null) || local_size=$(stat -f%z "$file" 2>/dev/null)
+
+        if [[ -v "existing_sizes[$rel_path]" ]]; then
+            local remote_size="${existing_sizes[$rel_path]}"
+            if [[ "$local_size" == "$remote_size" ]]; then
                 upload=false
-                break
+            else
+                log info "Size changed: $rel_path (local: $local_size, remote: $remote_size) - will update"
+                upload=true
             fi
-        done
+        fi
 
         if [[ "$upload" == "false" ]]; then
             log info "Skipped (unchanged): $repo_path"
@@ -1432,7 +1447,7 @@ interactive_upload_dir() {
 show_help() {
     cat << 'HELPEOF'
 ╔══════════════════════════════════════════════════════════════════╗
-║        GitHub Direct Upload Tool v2.9                 ║
+║        GitHub Direct Upload Tool v2.10                 ║
 ║        Upload files to GitHub WITHOUT cloning!               ║
 ╚══════════════════════════════════════════════════════════════════╝
 
