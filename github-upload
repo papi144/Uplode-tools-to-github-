@@ -98,27 +98,29 @@ list_repos_for_account() {
     local response
     response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/user/repos?per_page=100")
 
-    local repo_count=0
     echo -e "${BOLD}Your Repositories${NC}"
-    echo -e "${BOLD}Name             Stars  Forks  Private${NC}"
-    echo -e "${CYAN}---------------------------------------${NC}"
+    echo -e "${BOLD}Name             Stars  Forks${NC}"
+    echo -e "${CYAN}---------------------------------${NC}"
 
-    while IFS= read -r line; do
-        local name="$line"
-        name=$(echo "$name" | grep -o '"name": "[^"]*"' | head -1 | sed 's/"name": "//;s/"$//')
+    local repo_count=0
+    for name in $(echo "$response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//'); do
         [[ -z "$name" ]] && continue
+        repo_count=1
+        local stars="0"
+        local forks="0"
 
-        repo_count=$((repo_count + 1))
-        local stars=$(echo "$response" | grep -A2 "\"$name\"" | grep "stargazers_count" | sed 's/.*: *\([0-9]*\).*/\1/' | head -1)
-        local forks=$(echo "$response" | grep -A2 "\"$name\"" | grep "forks_count" | sed 's/.*: *\([0-9]*\).*/\1/' | head -1)
-        local private=$(echo "$response" | grep -A2 "\"$name\"" | grep "private" | sed 's/.*: *\([a-z]*\).*/\1/' | head -1)
+        local repo_info
+        repo_info=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_USERNAME/$name")
 
-        [[ -z "$stars" ]] && stars="0"
-        [[ -z "$forks" ]] && forks="0"
-        [[ "$private" == "true" ]] && private="yes" || private="no"
+        stars=$(echo "$repo_info" | sed 's/.*"stargazers_count": *\([0-9]*\).*/\1/;s/,".*//' | head -1)
+        forks=$(echo "$repo_info" | sed 's/.*"forks_count": *\([0-9]*\).*/\1/;s/,".*//' | head -1)
 
-        printf "%-15s %5s %5s %s\n" "$name" "$stars" "$forks" "$private"
-    done < <(echo "$response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//')
+        [[ -z "$stars" || "$stars" == "$repo_info" ]] && stars="0"
+        [[ -z "$forks" || "$forks" == "$repo_info" ]] && forks="0"
+
+        printf "%-15s %6s %6s\n" "$name" "$stars" "$forks"
+    done
 
     if [[ $repo_count -eq 0 ]]; then
         log warn "No repositories found"
@@ -1170,35 +1172,36 @@ interactive_list() {
     fi
 
     echo -e "${BOLD}Files in $repo${NC}"
-    echo -e "${CYAN}------------------------${NC}"
+    echo -e "${CYAN}-----------------${NC}"
 
-    while IFS= read -r line; do
-        local name size
-        name=$(echo "$line" | sed 's/.*name": "\([^"]*\)".*/\1/')
-        size=$(echo "$line" | sed 's/.*size": \([0-9]*\).*/\1/')
+    local has_files=0
+    for name in $(echo "$response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//'); do
+        [[ -z "$name" ]] && continue
+        has_files=1
 
-        if [[ -n "$name" && "$name" != "null" ]]; then
-            if [[ -n "$size" && "$size" != "null" && "$size" != "" ]]; then
-                local size_display
-                if [[ $size -gt 1048576 ]]; then
-                    size_display="$((size / 1048576))MB"
-                elif [[ $size -gt 1024 ]]; then
-                    size_display="$((size / 1024))KB"
-                else
-                    size_display="${size}B"
-                fi
-                printf "  %-15s %s\n" "$name" "$size_display"
+        local size="?"
+        local file_info
+        file_info=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "https://api.github.com/repos/$repo/contents/$name")
+
+        size=$(echo "$file_info" | sed 's/.*"size": *\([0-9]*\).*/\1/;s/,".*//' | head -1)
+
+        local size_display
+        if [[ -n "$size" && "$size" != "null" && "$size" != "$file_info" ]]; then
+            if [[ $size -gt 1048576 ]]; then
+                size_display="$((size / 1048576))MB"
+            elif [[ $size -gt 1024 ]]; then
+                size_display="$((size / 1024))KB"
             else
-                printf "  %-15s %s\n" "$name" "<dir>"
+                size_display="${size}B"
             fi
+            printf "  %-12s %s\n" "$name" "$size_display"
+        else
+            printf "  %-12s %s\n" "$name" "<dir>"
         fi
-    done < <(echo "$response" | grep -o '{[^}]*}' | grep '"name"')
+    done
 
-    if echo "$response" | grep -q '"name"'; then
-        :
-    else
-        echo "(empty)"
-    fi
+    [[ $has_files -eq 0 ]] && echo "(empty)"
 }
 
 interactive_create_repo() {
