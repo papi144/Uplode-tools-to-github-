@@ -103,24 +103,22 @@ list_repos_for_account() {
     echo -e "${CYAN}---------------------------------${NC}"
 
     local repo_count=0
-    for name in $(echo "$response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//'); do
+    while IFS= read -r line; do
+        local name
+        name=$(echo "$line" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//' | head -1)
         [[ -z "$name" ]] && continue
         repo_count=1
-        local stars="0"
-        local forks="0"
 
-        local repo_info
-        repo_info=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
-            "https://api.github.com/repos/$GITHUB_USERNAME/$name")
+        local stars_forks
+        stars_forks=$(echo "$line" | grep -o '"stargazers_count": [0-9]*' | sed 's/"stargazers_count": //')
+        local forks
+        forks=$(echo "$line" | grep -o '"forks_count": [0-9]*' | sed 's/"forks_count": //')
 
-        stars=$(echo "$repo_info" | sed 's/.*"stargazers_count": *\([0-9]*\).*/\1/;s/,".*//' | head -1)
-        forks=$(echo "$repo_info" | sed 's/.*"forks_count": *\([0-9]*\).*/\1/;s/,".*//' | head -1)
+        [[ -z "$stars_forks" ]] && stars_forks="0"
+        [[ -z "$forks" ]] && forks="0"
 
-        [[ -z "$stars" || "$stars" == "$repo_info" ]] && stars="0"
-        [[ -z "$forks" || "$forks" == "$repo_info" ]] && forks="0"
-
-        printf "%-15s %6s %6s\n" "$name" "$stars" "$forks"
-    done
+        printf "%-15s %6s %6s\n" "$name" "$stars_forks" "$forks"
+    done < <(echo "$response" | grep -o '{[^}]*}' | grep '"name"')
 
     if [[ $repo_count -eq 0 ]]; then
         log warn "No repositories found"
@@ -1172,34 +1170,36 @@ interactive_list() {
     fi
 
     echo -e "${BOLD}Files in $repo${NC}"
-    echo -e "${CYAN}-----------------${NC}"
+    echo -e "${CYAN}------------------------${NC}"
 
     local has_files=0
-    for name in $(echo "$response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//'); do
+    while IFS= read -r line; do
+        local name
+        name=$(echo "$line" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//' | head -1)
         [[ -z "$name" ]] && continue
         has_files=1
 
-        local size="?"
-        local file_info
-        file_info=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
-            "https://api.github.com/repos/$repo/contents/$name")
+        local size_info
+        size_info=$(echo "$line" | grep -o '"size": [0-9]*' | sed 's/"size": //')
+        local size_display="<dir>"
 
-        size=$(echo "$file_info" | sed 's/.*"size": *\([0-9]*\).*/\1/;s/,".*//' | head -1)
-
-        local size_display
-        if [[ -n "$size" && "$size" != "null" && "$size" != "$file_info" ]]; then
-            if [[ $size -gt 1048576 ]]; then
-                size_display="$((size / 1048576))MB"
-            elif [[ $size -gt 1024 ]]; then
-                size_display="$((size / 1024))KB"
-            else
-                size_display="${size}B"
-            fi
-            printf "  %-12s %s\n" "$name" "$size_display"
-        else
-            printf "  %-12s %s\n" "$name" "<dir>"
+        if [[ -n "$size_info" ]]; then
+            case $size_info in
+                ''|*[!0-9]*) size_display="<dir>" ;;
+                *) 
+                    if [[ $size_info -gt 1048576 ]]; then
+                        size_display="$((size_info / 1048576))MB"
+                    elif [[ $size_info -gt 1024 ]]; then
+                        size_display="$((size_info / 1024))KB"
+                    else
+                        size_display="${size_info}B"
+                    fi
+                    ;;
+            esac
         fi
-    done
+
+        printf "  %-15s %s\n" "$name" "$size_display"
+    done < <(echo "$response" | grep -o '{[^}]*}' | grep '"name"')
 
     [[ $has_files -eq 0 ]] && echo "(empty)"
 }
