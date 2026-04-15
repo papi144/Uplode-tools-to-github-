@@ -350,26 +350,26 @@ upload_file() {
     fi
 
     # Build JSON payload
-    local sha_fragment=""
-    [[ -n "$sha" ]] && sha_fragment=$(printf ',"sha":"%s"' "$sha")
-
-    # FIX #5: Branch goes in the JSON body for PUT, NOT as ?ref= query param
-    local branch_fragment=""
-    [[ -n "$TARGET_BRANCH" ]] && branch_fragment=$(printf ',"branch":"%s"' "$TARGET_BRANCH")
-
     local json
-    json=$(printf '{"message":"%s","content":"%s"%s%s}' \
-        "$commit_msg" "$content" "$sha_fragment" "$branch_fragment")
+    if [[ -n "$sha" && -n "$TARGET_BRANCH" ]]; then
+        json=$(printf '{"message":"%s","content":"%s","sha":"%s","branch":"%s"}' \
+            "$commit_msg" "$content" "$sha" "$TARGET_BRANCH")
+    elif [[ -n "$sha" ]]; then
+        json=$(printf '{"message":"%s","content":"%s","sha":"%s"}' \
+            "$commit_msg" "$content" "$sha")
+    elif [[ -n "$TARGET_BRANCH" ]]; then
+        json=$(printf '{"message":"%s","content":"%s","branch":"%s"}' \
+            "$commit_msg" "$content" "$TARGET_BRANCH")
+    else
+        json=$(printf '{"message":"%s","content":"%s"}' \
+            "$commit_msg" "$content")
+    fi
 
     local tmpfile
     tmpfile=$(mktemp)
     printf '%s' "$json" > "$tmpfile"
 
     local api_url="https://api.github.com/repos/$repo/contents/$repo_path"
-
-    log info "Token prefix: ${GITHUB_TOKEN:0:5}..."
-    log info "Repo: $repo"
-    log info "Path: $repo_path"
 
     local http_code
     http_code=$(curl -s -o /tmp/upload_response.json -w "%{http_code}" -X PUT \
@@ -381,7 +381,6 @@ upload_file() {
 
     local body
     body=$(cat /tmp/upload_response.json)
-    log info "Response: $body"
     rm -f "$tmpfile" /tmp/upload_response.json
 
     if [[ "$http_code" == "200" ]] || [[ "$http_code" == "201" ]]; then
