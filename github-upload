@@ -344,6 +344,9 @@ upload_file() {
         "https://api.github.com/repos/$repo/contents/$repo_path")
     existing_sha=$(jq_safe "$sha_response" ".sha")
 
+    log info "SHA response: $sha_response"
+    log info "Extracted SHA: $existing_sha"
+
     if [[ -n "$existing_sha" && "$existing_sha" != "null" ]]; then
         sha="$existing_sha"
         log info "File exists, updating..."
