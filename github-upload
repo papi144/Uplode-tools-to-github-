@@ -1,0 +1,1934 @@
+#!/usr/bin/env bash
+################################################################################
+# GitHub Direct Upload Tool v2.26 (Fixed)
+#
+# Upload files directly to GitHub via API (NO CLONING NEEDED!)
+# Features: No clone, 100MB support, quiet mode, help, delete files, multi-account
+# Fixes: All bugs patched + file sizes in list + repo sizes in repo list
+################################################################################
+
+set -euo pipefail
+
+# ========================
+# CONFIGURATION
+# ========================
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/github-upload"
+DEFAULT_CONFIG="$CONFIG_DIR/config"
+ACCOUNTS_DIR="$CONFIG_DIR/accounts"
+MAX_FILE_SIZE=104857600  # 100MB in bytes
+LARGE_FILE_SIZE=1048576  # 1MB - files larger than this show progress
+
+# FIX #19: Only use colors if stdout is a TTY and NO_COLOR is not set
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+    RED='\033[0;31m'
+    GREEN='\033[0;32m'
+    YELLOW='\033[1;33m'
+    BLUE='\033[0;34m'
+    CYAN='\033[0;36m'
+    MAGENTA='\033[0;35m'
+    ORANGE='\033[38;5;208m'
+    PURPLE='\033[38;5;141m'
+    BOLD='\033[1m'
+    DIM='\033[2m'
+    NC='\033[0m'
+else
+    RED='' GREEN='' YELLOW='' BLUE='' CYAN='' MAGENTA=''
+    ORANGE='' PURPLE='' BOLD='' DIM='' NC=''
+fi
+
+# Icons
+CHECK="${GREEN}[+]"
+CROSS="${RED}[x]"
+ARROW="${CYAN}->"
+BULLET="${ORANGE}*"
+
+# ========================
+# HELPER FUNCTIONS
+# ========================
+
+log() {
+    local type="$1"
+    shift
+    local msg="$*"
+    case "$type" in
+        info)    [[ "$QUIET" != "true" ]] && echo -e "${CYAN}[i]${NC} $msg" ;;
+        success) [[ "$QUIET" != "true" ]] && echo -e "${GREEN}${CHECK}${NC} $msg" ;;
+        warn)    [[ "$QUIET" != "true" ]] && echo -e "${YELLOW}[!]${NC} $msg" ;;
+        error)   echo -e "${RED}${CROSS}${NC} $msg" >&2 ;;
+        quiet)   : ;;
+    esac
+}
+
+# Human-readable file size
+human_size() {
+    local bytes="$1"
+    if [[ -z "$bytes" || "$bytes" == "0" ]]; then
+        echo "0 B"
+    elif [[ $bytes -lt 1024 ]]; then
+        echo "${bytes} B"
+    elif [[ $bytes -lt 1048576 ]]; then
+        printf "%.1f KB" "$(echo "scale=1; $bytes/1024" | bc 2>/dev/null || echo "$((bytes/1024))")"
+    elif [[ $bytes -lt 1073741824 ]]; then
+        printf "%.1f MB" "$(echo "scale=1; $bytes/1048576" | bc 2>/dev/null || echo "$((bytes/1048576))")"
+    else
+        printf "%.1f GB" "$(echo "scale=1; $bytes/1073741824" | bc 2>/dev/null || echo "$((bytes/1073741824))")"
+    fi
+}
+
+jq_safe() {
+    local json="$1"
+    local query="$2"
+    if command -v jq > /dev/null 2>&1; then
+        echo "$json" | jq -r "$query" 2>/dev/null || echo ""
+    else
+        case "$query" in
+            ".object.sha")
+                echo "$json" | sed -n 's/.*"sha": *"\([^"]*\)".*/\1/p' | head -1
+                ;;
+            ".sha")
+                echo "$json" | sed -n 's/.*"sha": *"\([^"]*\)".*/\1/p' | head -1
+                ;;
+            ".message")
+                echo "$json" | grep -o '"message":"[^"]*"' | head -1 | cut -d'"' -f4
+                ;;
+            ".id")
+                echo "$json" | grep -o '"id":[0-9]*' | head -1 | cut -d':' -f2
+                ;;
+            *)
+                echo "$json" | grep -o '"name":"[^"]*"' | head -1 | cut -d'"' -f4
+                ;;
+        esac
+    fi
+}
+
+handle_list_repos_menu() {
+    select_account || return
+    local response
+    response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/user/repos?per_page=100&sort=updated")
+    echo -e "${BOLD}Repositories for $GITHUB_USERNAME:${NC}"
+    echo "$response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//'
+}
+
+list_repos_for_account() {
+    select_account || return
+    echo -e "${BOLD}Repositories for $GITHUB_USERNAME:${NC}"
+    local response
+    response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/user/repos?per_page=100&sort=updated")
+    local count=0
+    while IFS= read -r name; do
+        [[ -n "$name" ]] && { echo "$name"; count=$((count + 1)); }
+    done < <(echo "$response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//')
+    [[ $count -eq 0 ]] && echo "(none)"
+}
+
+show_progress() {
+    local current=$1
+    local total=$2
+    local file=$3
+    local percent=0
+    [[ $total -gt 0 ]] && percent=$((current * 100 / total))
+    local hashes=$((percent / 2))
+    local bar=""
+    [[ $hashes -gt 0 ]] && bar=$(printf '#%.0s' $(seq 1 $hashes))
+    if [[ $total -gt 1 ]]; then
+        printf "\r${GREEN}[%-50s${NC}] %3d%% (%d/%d) %s" \
+            "$bar" "$percent" "$current" "$total" "$(basename "$file")"
+    else
+        printf "\r${GREEN}[%-50s${NC}] %3d%% %s" "$bar" "$percent" "$(basename "$file")"
+    fi
+}
+
+get_mime_type() {
+    local file="$1"
+    local ext="${file##*.}"
+    case "$ext" in
+        apk)  echo "application/vnd.android.package-archive" ;;
+        ipa)  echo "application/iphone" ;;
+        jar)  echo "application/java-archive" ;;
+        zip)  echo "application/zip" ;;
+        tar)  echo "application/x-tar" ;;
+        gz)   echo "application/gzip" ;;
+        pdf)  echo "application/pdf" ;;
+        txt)  echo "text/plain" ;;
+        json) echo "application/json" ;;
+        xml)  echo "application/xml" ;;
+        html) echo "text/html" ;;
+        js)   echo "application/javascript" ;;
+        sh)   echo "application/x-sh" ;;
+        py)   echo "text/x-python" ;;
+        md)   echo "text/markdown" ;;
+        png)  echo "image/png" ;;
+        jpg)  echo "image/jpeg" ;;
+        gif)  echo "image/gif" ;;
+        svg)  echo "image/svg+xml" ;;
+        mp3)  echo "audio/mpeg" ;;
+        mp4)  echo "video/mp4" ;;
+        *)    echo "application/octet-stream" ;;
+    esac
+}
+
+# ========================
+# ACCOUNT MANAGEMENT
+# ========================
+
+add_account() {
+    local name="${1:-}"
+    if [ -z "$name" ]; then
+        read -rp "Account name (e.g., personal, work): " name
+        [[ -n "$name" ]] || { echo "Account name required"; exit 1; }
+    fi
+
+    local config_dir="$ACCOUNTS_DIR/$name"
+    local config_file="$config_dir/config"
+
+    if [[ -e "$config_file" && "${OVERWRITE:-}" != "true" ]]; then
+        read -rp "Account '$name' exists. Overwrite? (y/N): " overwrite
+        [[ "$overwrite" =~ ^[Yy]$ ]] || { echo "Aborted."; return; }
+    fi
+
+    echo -e "${CYAN}Adding account: $name${NC}"
+    read -rp "GitHub username: " user
+    read -rsp "GitHub Personal Access Token: " token
+    echo
+
+    mkdir -p "$config_dir"
+    # Use printf %q to safely quote — prevents special chars ($, backticks) corrupting config
+    printf 'GITHUB_USERNAME=%q\nGITHUB_TOKEN=%q\n' "$user" "$token" > "$config_file"
+    chmod 600 "$config_file"
+    echo -e "${GREEN}${CHECK} Account '${name}' saved.${NC}"
+}
+
+list_accounts() {
+    echo "Configured accounts:"
+    local count=0
+
+    if [[ -f "$DEFAULT_CONFIG" ]]; then
+        local user
+        user=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"' || echo "unknown")
+        echo -e "  ${BLUE}default${NC}: $user ${GREEN}(you are here)${NC}"
+        count=$((count + 1))
+    fi
+
+    if [[ -d "$ACCOUNTS_DIR" ]]; then
+        for cfg in "$ACCOUNTS_DIR"/*/config; do
+            [[ -f "$cfg" ]] || continue
+            local acc u
+            acc=$(basename "$(dirname "$cfg")")
+            u=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"' || echo "unknown")
+            echo -e "  ${BLUE}$acc${NC}: $u"
+            count=$((count + 1))
+        done
+    fi
+
+    [[ $count -eq 0 ]] && echo "  (none configured)"
+    echo
+}
+
+load_account() {
+    local name="$1"
+    # Don't wipe credentials that are already loaded
+    if [[ -n "${GITHUB_TOKEN:-}" && -n "${GITHUB_USERNAME:-}" ]]; then
+        return 0
+    fi
+
+    if [[ -z "$name" ]] || [[ "$name" == "default" ]]; then
+        [[ -f "$DEFAULT_CONFIG" ]] && source "$DEFAULT_CONFIG"  # shellcheck disable=SC1090
+        [[ -n "${GITHUB_USERNAME:-}" && -n "${GITHUB_TOKEN:-}" ]] && return 0
+        return 1
+    else
+        local cfg="$ACCOUNTS_DIR/$name/config"
+        [[ -f "$cfg" ]] && source "$cfg"  # shellcheck disable=SC1090
+        [[ -n "${GITHUB_USERNAME:-}" && -n "${GITHUB_TOKEN:-}" ]] && return 0
+        return 1
+    fi
+}
+
+verify_account() {
+    # FIX: Use -o /dev/null to cleanly separate body from HTTP code
+    local body code
+    body=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/user")
+    code=$(curl -s -o /dev/null -w "%{http_code}" \
+        -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/user")
+
+    if [[ "$code" == "200" ]]; then
+        local username
+        username=$(echo "$body" | grep -o '"login":"[^"]*"' | head -1 | cut -d'"' -f4)
+        echo "$username"
+        return 0
+    fi
+    return 1
+}
+
+# ========================
+# REPO OPERATIONS
+# ========================
+
+check_repo() {
+    local repo="$1"
+    curl -s -o /dev/null -w "%{http_code}" \
+        -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/repos/$repo"
+}
+
+create_repo() {
+    local repo_owner="$1"
+    local repo_name="$2"
+    local is_private="${3:-false}"
+    local description="${4:-}"
+
+    local json
+    if [[ -n "$description" ]]; then
+        json="{\"name\":\"$repo_name\",\"description\":\"$description\",\"private\":$is_private}"
+    else
+        json="{\"name\":\"$repo_name\",\"private\":$is_private}"
+    fi
+
+    local api_url
+    if [[ "$repo_owner" == "$GITHUB_USERNAME" ]]; then
+        api_url="https://api.github.com/user/repos"
+    else
+        api_url="https://api.github.com/orgs/$repo_owner/repos"
+    fi
+
+    local tmpfile body code
+    tmpfile=$(mktemp)
+    printf '%s' "$json" > "$tmpfile"
+
+    body=$(curl -s -X POST \
+        -H "Authorization: Bearer $GITHUB_TOKEN" \
+        -H "Accept: application/vnd.github+json" \
+        --data-binary "@$tmpfile" "$api_url")
+    code=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+        -H "Authorization: Bearer $GITHUB_TOKEN" \
+        -H "Accept: application/vnd.github+json" \
+        --data-binary "@$tmpfile" "$api_url")
+    rm -f "$tmpfile"
+
+    if [[ "$code" == "201" || "$code" == "200" ]]; then
+        log success "Repository created"
+        return 0
+    else
+        local msg
+        msg=$(echo "$body" | grep -o '"message":"[^"]*"' | head -1 | cut -d'"' -f4)
+        log error "Failed to create repo: $msg"
+        return 1
+    fi
+}
+
+# ========================
+# FILE OPERATIONS (Direct API - NO CLONING!)
+# ========================
+
+upload_file() {
+    local repo="$1"
+    local file_path="$2"
+    local repo_path="${3:-$(basename "$file_path")}"
+    local commit_msg="${4:-Upload $repo_path}"
+
+    if [[ ! -f "$file_path" ]]; then
+        log error "File not found: $file_path"
+        return 1
+    fi
+
+    local file_size=""
+    file_size=$(stat -c%s "$file_path" 2>/dev/null) \
+        || file_size=$(stat -f%z "$file_path" 2>/dev/null) \
+        || { log error "Cannot determine file size for: $file_path"; return 1; }
+
+    if [[ $file_size -gt $MAX_FILE_SIZE ]]; then
+        log warn "File too large for contents API ($(human_size "$file_size")). Uploading via GitHub Releases..."
+        upload_to_release "$repo" "$file_path" "$repo_path" "$commit_msg"
+        return $?
+    fi
+
+    # Portable base64: detect -w flag (GNU), fall back to macOS tr strip
+    local content
+    if base64 --help 2>&1 | grep -q '\-w'; then
+        content=$(base64 -w 0 "$file_path")
+    else
+        content=$(base64 "$file_path" | tr -d '\n')
+    fi
+
+    # Use jq_safe for SHA (works with or without jq)
+    local sha_response existing_sha sha=""
+    sha_response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/repos/$repo/contents/$repo_path")
+    existing_sha=$(jq_safe "$sha_response" ".sha")
+    if [[ -n "$existing_sha" && "$existing_sha" != "null" ]]; then
+        sha="$existing_sha"
+        log info "File exists, updating..."
+    fi
+
+    # Build JSON with branch in body (FIX: branch must not go in ?ref= for PUT)
+    local json
+    if [[ -n "$sha" && -n "$TARGET_BRANCH" ]]; then
+        json=$(printf '{"message":"%s","content":"%s","sha":"%s","branch":"%s"}' \
+            "$commit_msg" "$content" "$sha" "$TARGET_BRANCH")
+    elif [[ -n "$sha" ]]; then
+        json=$(printf '{"message":"%s","content":"%s","sha":"%s"}' \
+            "$commit_msg" "$content" "$sha")
+    elif [[ -n "$TARGET_BRANCH" ]]; then
+        json=$(printf '{"message":"%s","content":"%s","branch":"%s"}' \
+            "$commit_msg" "$content" "$TARGET_BRANCH")
+    else
+        json=$(printf '{"message":"%s","content":"%s"}' "$commit_msg" "$content")
+    fi
+
+    local tmpfile resp_tmpfile
+    tmpfile=$(mktemp)
+    resp_tmpfile=$(mktemp)
+    printf '%s' "$json" > "$tmpfile"
+
+    local http_code
+    # FIX: Use a proper temp file instead of /tmp/upload_response.json (race condition)
+    http_code=$(curl -s -o "$resp_tmpfile" -w "%{http_code}" -X PUT \
+        -H "Authorization: Bearer $GITHUB_TOKEN" \
+        -H "Accept: application/vnd.github+json" \
+        -H "Content-Type: application/json" \
+        --data-binary "@$tmpfile" \
+        "https://api.github.com/repos/$repo/contents/$repo_path")
+
+    local body
+    body=$(cat "$resp_tmpfile")
+    rm -f "$tmpfile" "$resp_tmpfile"
+
+    if [[ "$http_code" == "200" || "$http_code" == "201" ]]; then
+        log success "Uploaded: $repo_path"
+        return 0
+    else
+        local msg
+        msg=$(jq_safe "$body" ".message")
+        [[ -z "$msg" ]] && msg="Unknown error"
+        log error "Failed: $msg"
+        return 1
+    fi
+}
+
+upload_to_release() {
+    local repo="$1"
+    local file_path="$2"
+    local file_name="${3:-$(basename "$file_path")}"
+    local commit_msg="${4:-Upload $file_name to release}"
+
+    if [[ ! -f "$file_path" ]]; then
+        log error "File not found: $file_path"
+        return 1
+    fi
+
+    local owner="${repo%%/*}"
+    local reponame="${repo##*/}"
+
+    # FIX: Use a sanitised tag name (strip spaces, slashes, dots — git tags can't have them freely)
+    local safe_tag
+    safe_tag="upload-$(date +%Y%m%d%H%M%S)"
+
+    log info "Creating release with tag: $safe_tag"
+
+    local release_json tmpfile release_resp
+    release_json=$(printf '{"tag_name":"%s","name":"Upload %s","draft":false,"prerelease":false}' \
+        "$safe_tag" "$file_name")
+    tmpfile=$(mktemp)
+    printf '%s' "$release_json" > "$tmpfile"
+
+    release_resp=$(curl -s -X POST \
+        -H "Authorization: Bearer $GITHUB_TOKEN" \
+        -H "Accept: application/vnd.github+json" \
+        --data-binary "@$tmpfile" \
+        "https://api.github.com/repos/$owner/$reponame/releases")
+    rm -f "$tmpfile"
+
+    # FIX: Parse release id using jq_safe which now handles ".id"
+    local release_id
+    release_id=$(jq_safe "$release_resp" ".id")
+
+    if [[ -z "$release_id" || "$release_id" == "null" ]]; then
+        log error "Failed to create release. Response: $(echo "$release_resp" | grep -o '"message":"[^"]*"' | head -1)"
+        return 1
+    fi
+
+    log info "Uploading asset to release $release_id..."
+
+    local content_type upload_url upload_resp
+    content_type=$(get_mime_type "$file_path")
+    upload_url="https://uploads.github.com/repos/$owner/$reponame/releases/$release_id/assets?name=$(basename "$file_path")"
+
+    upload_resp=$(curl -s -X POST \
+        -H "Authorization: Bearer $GITHUB_TOKEN" \
+        -H "Accept: application/vnd.github+json" \
+        -H "Content-Type: $content_type" \
+        --data-binary "@$file_path" \
+        "$upload_url")
+
+    if echo "$upload_resp" | grep -q '"browser_download_url"'; then
+        local download_url
+        download_url=$(echo "$upload_resp" | grep -o '"browser_download_url":"[^"]*"' | cut -d'"' -f4)
+        log success "Uploaded to release: $download_url"
+        return 0
+    else
+        log error "Release upload failed"
+        return 1
+    fi
+}
+
+delete_file() {
+    local repo="$1"
+    local repo_path="$2"
+    local commit_msg="${3:-Delete $repo_path}"
+
+    local sha_response sha
+    sha_response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/repos/$repo/contents/$repo_path")
+    sha=$(jq_safe "$sha_response" ".sha")
+
+    if [[ -z "$sha" || "$sha" == "null" ]]; then
+        log error "File not found: $repo_path"
+        return 1
+    fi
+
+    local tmpfile resp_tmpfile
+    tmpfile=$(mktemp)
+    resp_tmpfile=$(mktemp)
+    printf '{"message":"%s","sha":"%s"}' "$commit_msg" "$sha" > "$tmpfile"
+
+    # FIX: Use proper temp file instead of /tmp/delete_response.json (race condition)
+    local http_code body
+    http_code=$(curl -s -o "$resp_tmpfile" -w "%{http_code}" -X DELETE \
+        -H "Authorization: Bearer $GITHUB_TOKEN" \
+        -H "Accept: application/vnd.github+json" \
+        -H "Content-Type: application/json" \
+        --data-binary "@$tmpfile" \
+        "https://api.github.com/repos/$repo/contents/$repo_path")
+    body=$(cat "$resp_tmpfile")
+    rm -f "$tmpfile" "$resp_tmpfile"
+
+    if [[ "$http_code" == "200" || "$http_code" == "204" ]]; then
+        log success "Deleted: $repo_path"
+        return 0
+    else
+        local msg
+        msg=$(jq_safe "$body" ".message")
+        [[ -z "$msg" ]] && msg="Unknown error"
+        # FIX: was using undefined $code — now uses $http_code
+        log error "Failed: $msg (HTTP $http_code)"
+        return 1
+    fi
+}
+
+# ========================
+# OPTION 6: LIST FILES WITH SIZES
+# ========================
+
+list_files() {
+    local repo="$1"
+    local path="${2:-}"
+
+    local url="https://api.github.com/repos/$repo/contents"
+    [[ -n "$path" ]] && url="$url/$path"
+
+    local response
+    response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "$url")
+
+    # Match only a top-level error object
+    if echo "$response" | grep -qE '^\{[[:space:]]*"message"'; then
+        log error "Failed to list files"
+        return 1
+    fi
+
+    echo -e "${BOLD}Files in $repo${path:+/$path}${NC}:"
+    echo
+
+    if command -v jq > /dev/null 2>&1; then
+        # With jq: print name, type, size aligned
+        echo "$response" | jq -r '.[] | [.name, .type, (.size // 0 | tostring)] | @tsv' 2>/dev/null \
+        | while IFS=$'\t' read -r name type size; do
+            local emoji
+            emoji=$(get_file_emoji "$name")
+            if [[ "$type" == "dir" ]]; then
+                printf "  ${BLUE}%-40s${NC} ${DIM}%s${NC}\n" "$emoji $name/" "<dir>"
+            else
+                printf "  %-40s ${DIM}%s${NC}\n" "$emoji $name" "$(human_size "$size")"
+            fi
+        done
+    else
+        # Without jq: parse name and size from JSON with sed
+        echo "$response" | grep -o '"name":"[^"]*"\|"size":[0-9]*\|"type":"[^"]*"' \
+        | paste - - - \
+        | while IFS=$'\t' read -r name_raw type_raw size_raw; do
+            local name type size
+            name=$(echo "$name_raw" | cut -d'"' -f4)
+            type=$(echo "$type_raw" | cut -d'"' -f4)
+            size=$(echo "$size_raw" | grep -o '[0-9]*')
+            local emoji
+            emoji=$(get_file_emoji "$name")
+            if [[ "$type" == "dir" ]]; then
+                printf "  ${BLUE}%-40s${NC} ${DIM}%s${NC}\n" "$emoji $name/" "<dir>"
+            else
+                printf "  %-40s ${DIM}%s${NC}\n" "$emoji $name" "$(human_size "${size:-0}")"
+            fi
+        done
+    fi
+    echo
+}
+
+# ========================
+# MAIN LOGIC
+# ========================
+
+resolve_account() {
+    if [[ -n "$SPECIFIED_ACCOUNT" ]]; then
+        if ! load_account "$SPECIFIED_ACCOUNT"; then
+            log error "Account '$SPECIFIED_ACCOUNT' not found."
+            exit 1
+        fi
+        return 0
+    fi
+
+    local accounts=()
+    [[ -f "$DEFAULT_CONFIG" ]] && accounts+=("default")
+    [[ -d "$ACCOUNTS_DIR" ]] && for cfg in "$ACCOUNTS_DIR"/*/config; do
+        [[ -f "$cfg" ]] && accounts+=("$(basename "$(dirname "$cfg")")")
+    done
+
+    if [[ ${#accounts[@]} -eq 0 ]]; then
+        log error "No accounts configured. Run with -A to add one."
+        exit 1
+    fi
+
+    for acc in "${accounts[@]}"; do
+        if load_account "$acc" 2>/dev/null; then
+            if verify_account > /dev/null 2>&1; then
+                [[ "$acc" != "default" ]] && log info "Using account: $acc"
+                return 0
+            fi
+        fi
+    done
+
+    log error "No valid account found."
+    exit 1
+}
+
+do_upload() {
+    [[ -z "$REPO" ]] && { log error "Repository required. Use -r repo"; exit 1; }
+    [[ ${#FILES[@]} -eq 0 ]] && { log error "No files specified."; exit 1; }
+
+    [[ -z "${GITHUB_TOKEN:-}" ]] && resolve_account "$REPO"
+
+    if [[ -z "${GITHUB_USERNAME:-}" ]]; then
+        GITHUB_USERNAME=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+    fi
+
+    [[ "$REPO" != */* ]] && REPO="$GITHUB_USERNAME/$REPO"
+
+    local code
+    code=$(check_repo "$REPO")
+
+    if [[ "$code" == "404" ]]; then
+        if [[ "$CREATE_REPO" == "true" ]]; then
+            create_repo "${REPO%%/*}" "${REPO##*/}" "$IS_PRIVATE" "$REPO_DESCRIPTION"
+        else
+            log error "Repository not found: $REPO"
+            echo "Use -c to create it"
+            exit 1
+        fi
+    elif [[ "$code" != "200" ]]; then
+        log error "Cannot access repository: $REPO (HTTP $code)"
+        exit 1
+    fi
+
+    local success=0 failed=0 total=${#FILES[@]} current=0
+
+    for file in "${FILES[@]}"; do
+        current=$((current + 1))
+        if [[ -f "$file" ]]; then
+            local file_size=""
+            file_size=$(stat -c%s "$file" 2>/dev/null) || file_size=$(stat -f%z "$file" 2>/dev/null) || file_size=0
+
+            if [[ "$PROGRESS" == "true" || $total -gt 1 || $file_size -gt $LARGE_FILE_SIZE ]]; then
+                show_progress "$current" "$total" "$file"
+            else
+                [[ "$QUIET" != "true" ]] && echo -e "${CYAN}${ARROW}${NC} Upload: ${PURPLE}$(basename "$file")${NC}"
+            fi
+
+            if [[ "$DRY_RUN" == "true" ]]; then
+                log info "Would upload: $file"
+            else
+                local effective_path
+                if [[ $total -gt 1 || -z "$FILE_PATH" ]]; then
+                    effective_path="$(basename "$file")"
+                else
+                    effective_path="$FILE_PATH"
+                fi
+
+                if upload_file "$REPO" "$file" "$effective_path" "$COMMIT_MSG"; then
+                    success=$((success + 1))
+                else
+                    failed=$((failed + 1))
+                fi
+            fi
+        else
+            log warn "File not found: $file"
+            failed=$((failed + 1))
+        fi
+    done
+
+    [[ "$PROGRESS" == "true" || $total -gt 1 ]] && echo
+    echo
+
+    if [[ "$DRY_RUN" != "true" ]]; then
+        [[ $success -gt 0 ]] && log success "Uploaded $success file(s)"
+        [[ $failed -gt 0 ]] && log warn "Failed: $failed file(s)"
+        [[ $success -gt 0 ]] && echo -e "${GREEN}View at: https://github.com/$REPO${NC}"
+    fi
+
+    [[ $failed -gt 0 ]] && exit 1
+}
+
+do_delete() {
+    [[ -z "$REPO" ]] && { log error "Repository required. Use -r repo"; exit 1; }
+    [[ -z "$DELETE_FILE" ]] && { log error "File to delete required. Use --delete path/to/file"; exit 1; }
+    [[ -z "${GITHUB_TOKEN:-}" ]] && resolve_account "$REPO"
+    if [[ -z "${GITHUB_USERNAME:-}" ]]; then
+        GITHUB_USERNAME=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+    fi
+    [[ "$REPO" != */* ]] && REPO="$GITHUB_USERNAME/$REPO"
+    delete_file "$REPO" "$DELETE_FILE" "$COMMIT_MSG"
+}
+
+do_list() {
+    [[ -z "$REPO" ]] && { log error "Repository required. Use -r repo"; exit 1; }
+    if [[ -z "${GITHUB_TOKEN:-}" ]]; then
+        if [[ -f "$DEFAULT_CONFIG" ]]; then
+            source "$DEFAULT_CONFIG"
+        else
+            log error "No account configured. Run -A to add one."
+            exit 1
+        fi
+    fi
+    if [[ -z "${GITHUB_USERNAME:-}" ]]; then
+        GITHUB_USERNAME=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+    fi
+    [[ "$REPO" != */* ]] && REPO="$GITHUB_USERNAME/$REPO"
+    list_files "$REPO" "${LIST_PATH:-}"
+}
+
+select_account() {
+    echo -e "${BOLD}Available accounts:${NC}"
+
+    local accounts=()
+    local count=1
+    local default_user=""
+
+    [[ -f "$DEFAULT_CONFIG" ]] && default_user=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+
+    if [[ -n "$default_user" ]]; then
+        echo -e "  ${CYAN}$count)${NC} default: $default_user"
+        accounts+=("default|$default_user")
+        count=$((count + 1))
+    fi
+
+    if [[ -d "$ACCOUNTS_DIR" ]]; then
+        for cfg in "$ACCOUNTS_DIR"/*/config; do
+            [[ -f "$cfg" ]] || continue
+            local acc u
+            acc=$(basename "$(dirname "$cfg")")
+            u=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
+            [[ "$u" == "$default_user" ]] && continue
+            [[ -z "$u" ]] && u="(no username)"
+            echo -e "  ${CYAN}$count)${NC} $acc: $u"
+            accounts+=("$acc|$u")
+            count=$((count + 1))
+        done
+    fi
+
+    if [[ ${#accounts[@]} -eq 0 ]]; then
+        echo "  (no accounts configured)"
+        return 1
+    fi
+
+    echo
+    read -rp "Select account [1-${#accounts[@]}]: " choice
+
+    if [[ -z "$choice" ]] || ! [[ "$choice" =~ ^[0-9]+$ ]] \
+        || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt ${#accounts[@]} ]]; then
+        log error "Invalid selection"
+        return 1
+    fi
+
+    local selected="${accounts[$((choice - 1))]}"
+    local acc_name="${selected%|*}"
+
+    if [[ "$acc_name" == "default" ]]; then
+        . "$DEFAULT_CONFIG"
+    else
+        . "$ACCOUNTS_DIR/$acc_name/config"
+    fi
+
+    if [[ -z "${GITHUB_USERNAME:-}" ]]; then
+        if [[ "$acc_name" == "default" ]]; then
+            GITHUB_USERNAME=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+        else
+            GITHUB_USERNAME=$(grep '^GITHUB_USERNAME=' "$ACCOUNTS_DIR/$acc_name/config" 2>/dev/null | cut -d= -f2- | tr -d '"')
+        fi
+    fi
+
+    if [[ -z "${GITHUB_USERNAME:-}" ]]; then
+        log error "Account '$acc_name' has no username. Please remove and re-add it."
+        return 1
+    fi
+
+    local response
+    response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/user" 2>/dev/null)
+    if echo "$response" | grep -q '"login"'; then
+        return 0
+    else
+        log error "Account credentials are invalid. Please remove and re-add this account."
+        return 1
+    fi
+}
+
+get_file_emoji() {
+    local file="$1"
+    local ext="${file##*.}"
+    case "${ext,,}" in
+        apk)  echo "📦" ;; ipa) echo "📱" ;; jar) echo "☕" ;;
+        zip|rar|7z|tar|gz) echo "🗜️" ;; pdf) echo "📕" ;;
+        doc|docx) echo "📝" ;; xls|xlsx) echo "📊" ;; ppt|pptx) echo "📑" ;;
+        txt|md|rst) echo "📄" ;; py) echo "🐍" ;; js) echo "📜" ;;
+        html|css) echo "🌐" ;; json|xml|yaml|yml) echo "📋" ;;
+        sh|bash) echo "⚡" ;; go) echo "🐹" ;; rs) echo "🦀" ;;
+        java) echo "☕" ;; kt|kts) echo "🤖" ;; swift) echo "🍎" ;;
+        c|cpp|h) echo "⚙️" ;;
+        png|jpg|jpeg|gif|svg|webp|bmp) echo "🖼️" ;;
+        mp3|wav|ogg|flac) echo "🎵" ;; mp4|mkv|avi|mov) echo "🎬" ;;
+        exe|msi) echo "💻" ;; deb|rpm|appimage) echo "📦" ;; aab) echo "📦" ;;
+        *) echo "📄" ;;
+    esac
+}
+
+launch_tui() {
+    select_account || return
+
+    echo -e "${BOLD}${CYAN}Fetching repositories...${NC}"
+    echo
+
+    local response
+    response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/user/repos?per_page=100")
+
+    if echo "$response" | grep -qE '^\{[[:space:]]*"message"'; then
+        log error "Failed to fetch repositories"
+        return
+    fi
+
+    local repo_count=0
+    echo -e "${BOLD}${MAGENTA}╔══════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BOLD}${MAGENTA}║        📁 REPOSITORIES FOR $GITHUB_USERNAME              ║${NC}"
+    echo -e "${BOLD}${MAGENTA}╚══════════════════════════════════════════════════════════╝${NC}"
+    echo
+
+    local repo_names=()
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && repo_names+=("$line")
+    done < <(echo "$response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//')
+
+    read -rp "Show all files in each repo? (y/N): " show_all
+    [[ "$show_all" =~ ^[Yy]$ ]] || show_all="n"
+
+    for repo_name in "${repo_names[@]}"; do
+        repo_count=$((repo_count + 1))
+        echo -e "${GREEN}┌─ 📂 $repo_name${NC}"
+
+        local files_response
+        files_response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_USERNAME/$repo_name/contents")
+
+        if echo "$files_response" | grep -q '"name"'; then
+            local file_count=0 file_names=()
+            while IFS= read -r file; do
+                [[ -n "$file" ]] && file_names+=("$file") && file_count=$((file_count + 1))
+            done < <(echo "$files_response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//')
+
+            if [[ $file_count -eq 0 ]]; then
+                echo -e "${DIM}│   (empty)${NC}"
+            else
+                local max_show=5
+                [[ "$show_all" =~ ^[Yy]$ ]] && max_show=100
+                for i in "${!file_names[@]}"; do
+                    if [[ $i -lt $max_show ]]; then
+                        local emoji
+                        emoji=$(get_file_emoji "${file_names[$i]}")
+                        if [[ $i -eq $((file_count - 1)) || $i -eq $((max_show - 1)) ]]; then
+                            echo -e "${DIM}└── $emoji ${file_names[$i]}${NC}"
+                        else
+                            echo -e "${DIM}├── $emoji ${file_names[$i]}${NC}"
+                        fi
+                    fi
+                done
+                [[ $file_count -gt $max_show ]] && \
+                    echo -e "${YELLOW}└── ... and $((file_count - max_show)) more files${NC}"
+            fi
+        fi
+        echo "│"
+    done
+
+    echo -e "${BOLD}${GREEN}Total: $repo_count repositories${NC}"
+}
+
+# FIX: while loop instead of recursion — prevents stack overflow
+show_interactive_menu() {
+    while true; do
+        clear
+        echo -e "${MAGENTA}╔══════════════════════════════════════════════════════════════════╗${NC}"
+        echo -e "${MAGENTA}║${NC}        ${BOLD}GitHub Direct Upload Tool v2.26${NC}${MAGENTA}                        ║${NC}"
+        echo -e "${MAGENTA}║${NC}        Upload files to GitHub WITHOUT cloning!               ║${NC}"
+        echo -e "${MAGENTA}╚══════════════════════════════════════════════════════════════════╝${NC}"
+        echo
+
+        local has_account=false current_account=""
+        if [[ -f "$DEFAULT_CONFIG" ]]; then
+            . "$DEFAULT_CONFIG" 2>/dev/null
+            current_account="${GITHUB_USERNAME:-}"
+            [[ -n "$current_account" ]] && has_account=true
+        fi
+
+        if [[ "$has_account" == "true" ]]; then
+            echo -e "${GREEN}${CHECK} Logged in as: ${BOLD}$current_account${NC}"
+            echo
+        else
+            echo -e "${YELLOW}[!]${NC} No account configured"
+            echo
+        fi
+
+        echo -e "${BOLD}Choose an option:${NC}"
+        echo
+        echo -e "  ${CYAN}1)${NC}  Add new account"
+        echo -e "  ${CYAN}2)${NC}  List available accounts"
+        echo -e "  ${CYAN}3)${NC}  Remove account"
+        echo -e "  ${CYAN}4)${NC}  Switch default account"
+        echo -e "  ${CYAN}5)${NC}  Upload file(s)"
+        echo -e "  ${CYAN}6)${NC}  List files in repository ${DIM}(with sizes)${NC}"
+        echo -e "  ${CYAN}7)${NC}  Create new repository"
+        echo -e "  ${CYAN}8)${NC}  List repositories ${DIM}(with sizes)${NC}"
+        echo -e "  ${CYAN}9)${NC}  Delete file from repository"
+        echo -e "  ${CYAN}10)${NC} See graph (TUI - tree view)"
+        echo -e "  ${CYAN}11)${NC} Clone repo or file"
+        echo -e "  ${CYAN}12)${NC} Push (upload directory)"
+        echo -e "  ${CYAN}13)${NC} Make private/public"
+        echo -e "  ${CYAN}14)${NC} Rename/move file"
+        echo -e "  ${CYAN}15)${NC} Move file across repos"
+        echo -e "  ${CYAN}16)${NC} Scan for secrets"
+        echo -e "  ${CYAN}17)${NC} Generate share link"
+        echo -e "  ${CYAN}18)${NC} Exit"
+        echo
+
+        read -rp "Enter your choice [1-18]: " choice
+        echo
+
+        case "$choice" in
+            1)  add_account "" ;;
+            2)  list_accounts ;;
+            3)  remove_account ;;
+            4)  switch_default_account ;;
+            5)  interactive_upload ;;
+            6)  interactive_list ;;
+            7)  interactive_create_repo ;;
+            8)  interactive_list_repos ;;
+            9)  interactive_delete ;;
+            10) launch_tui ;;
+            11) interactive_clone ;;
+            12) interactive_upload_dir ;;
+            13) toggle_repo_visibility ;;
+            14) interactive_rename_file ;;
+            15) interactive_move_cross_repo ;;
+            16) secret_scan ;;
+            17) generate_share_link ;;
+            18) echo -e "${GREEN}Goodbye!${NC}"; exit 0 ;;
+            *)  log error "Invalid option" ;;
+        esac
+
+        echo
+        read -rp "Press Enter to continue..."
+    done
+}
+
+remove_account() {
+    echo -e "${BOLD}Available accounts:${NC}"
+    local accounts=() count=0
+
+    if [[ -f "$DEFAULT_CONFIG" ]]; then
+        echo -e "  ${CYAN}default${NC}: $(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')"
+        accounts+=("default")
+        count=$((count + 1))
+    fi
+
+    if [[ -d "$ACCOUNTS_DIR" ]]; then
+        for cfg in "$ACCOUNTS_DIR"/*/config; do
+            [[ -f "$cfg" ]] || continue
+            local acc u
+            acc=$(basename "$(dirname "$cfg")")
+            u=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
+            echo -e "  ${CYAN}$acc${NC}: $u"
+            accounts+=("$acc")
+            count=$((count + 1))
+        done
+    fi
+
+    [[ $count -eq 0 ]] && { log error "No accounts to remove"; return; }
+
+    echo
+    read -rp "Enter account name to remove: " acc_name
+    [[ -z "$acc_name" ]] && { log error "Account name required"; return; }
+
+    if [[ "$acc_name" == "default" ]]; then
+        [[ -f "$DEFAULT_CONFIG" ]] && rm -f "$DEFAULT_CONFIG" && log success "Removed default account" \
+            || log error "Default account not found"
+        return
+    fi
+
+    if [[ -d "$ACCOUNTS_DIR/$acc_name" ]]; then
+        local u
+        u=$(grep '^GITHUB_USERNAME=' "$ACCOUNTS_DIR/$acc_name/config" 2>/dev/null | cut -d= -f2- | tr -d '"')
+        if [[ -z "$u" ]]; then
+            echo -e "${YELLOW}Warning: This account has no username saved.${NC}"
+            read -rp "Remove anyway? (y/N): " confirm
+            [[ "$confirm" =~ ^[Yy]$ ]] || return
+        fi
+        rm -rf "$ACCOUNTS_DIR/$acc_name"
+        log success "Removed account: $acc_name"
+    else
+        log error "Account not found: $acc_name"
+    fi
+}
+
+switch_default_account() {
+    echo -e "${BOLD}Select account to set as default:${NC}"
+    echo
+
+    local accounts=() count=1 current_user=""
+    [[ -f "$DEFAULT_CONFIG" ]] && current_user=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+
+    if [[ -n "$current_user" ]]; then
+        echo -e "  ${CYAN}$count)${NC} default: $current_user ${YELLOW}(current)${NC}"
+        accounts+=("default|$current_user")
+        count=$((count + 1))
+    fi
+
+    if [[ -d "$ACCOUNTS_DIR" ]]; then
+        for cfg in "$ACCOUNTS_DIR"/*/config; do
+            [[ -f "$cfg" ]] || continue
+            local acc u
+            acc=$(basename "$(dirname "$cfg")")
+            u=$(grep '^GITHUB_USERNAME=' "$cfg" 2>/dev/null | cut -d= -f2- | tr -d '"')
+            [[ -z "$u" || "$u" == "$current_user" ]] && continue
+            echo -e "  ${CYAN}$count)${NC} $acc: $u"
+            accounts+=("$acc|$u")
+            count=$((count + 1))
+        done
+    fi
+
+    [[ ${#accounts[@]} -eq 0 ]] && { log error "No accounts available"; return; }
+
+    echo
+    read -rp "Select [1-${#accounts[@]}]: " choice
+
+    if [[ -z "$choice" ]] || ! [[ "$choice" =~ ^[0-9]+$ ]] \
+        || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt ${#accounts[@]} ]]; then
+        log error "Invalid selection"; return
+    fi
+
+    local selected="${accounts[$((choice - 1))]}"
+    local acc_name="${selected%|*}"
+    local acc_user="${selected##*|}"
+
+    if [[ "$acc_name" == "default" ]]; then
+        log info "Already using default account"; return
+    fi
+
+    cp "$ACCOUNTS_DIR/$acc_name/config" "$DEFAULT_CONFIG"
+    chmod 600 "$DEFAULT_CONFIG"
+    source "$DEFAULT_CONFIG"  # FIX: update current session's vars
+    log success "Switched default account to: $acc_user"
+}
+
+interactive_upload() {
+    select_account || return
+
+    read -rp "Repository (user/repo or just repo name): " repo
+    [[ -z "$repo" ]] && { log error "Repository required"; return; }
+
+    read -rp "File path to upload: " file_path
+    [[ -z "$file_path" ]] && { log error "File path required"; return; }
+    [[ ! -f "$file_path" ]] && { log error "File not found: $file_path"; return; }
+
+    read -rp "Commit message (optional): " commit_msg
+    [[ -z "$commit_msg" ]] && commit_msg="Upload $(basename "$file_path")"
+
+    REPO="$repo" COMMIT_MSG="$commit_msg" FILE_PATH="" FILES=("$file_path")
+    do_upload
+}
+
+# ========================
+# OPTION 6: Interactive list with sizes
+# ========================
+
+interactive_list() {
+    select_account || return
+
+    read -rp "Repository (user/repo or just repo name): " repo
+    [[ -z "$repo" ]] && { log error "Repository required"; return; }
+    [[ "$repo" != */* ]] && repo="$GITHUB_USERNAME/$repo"
+
+    read -rp "Subfolder path (or Enter for root): " subpath
+
+    list_files "$repo" "$subpath"
+}
+
+interactive_create_repo() {
+    select_account || return
+
+    read -rp "Repository name: " repo_name
+    [[ -z "$repo_name" ]] && { log error "Repository name required"; return; }
+
+    read -rp "Description (optional): " description
+    read -rp "Make private? (y/N): " is_private_input
+    [[ "$is_private_input" =~ ^[Yy]$ ]] && IS_PRIVATE="true" || IS_PRIVATE="false"
+
+    local owner="${GITHUB_USERNAME}"
+    create_repo "$owner" "$repo_name" "$IS_PRIVATE" "$description" || return
+
+    read -rp "Upload a file now? (y/N): " upload_now
+    if [[ "$upload_now" =~ ^[Yy]$ ]]; then
+        read -rp "File path to upload: " file_path
+        [[ -z "$file_path" ]] && { log error "File path required"; return; }
+        [[ ! -f "$file_path" ]] && { log error "File not found: $file_path"; return; }
+
+        COMMIT_MSG="Initial commit"
+        REPO="$owner/$repo_name"
+        FILE_PATH="" FILES=("$file_path")
+        do_upload
+    else
+        log success "Repository created. View at: https://github.com/$owner/$repo_name"
+    fi
+}
+
+# ========================
+# OPTION 8: List repos with sizes
+# ========================
+
+interactive_list_repos() {
+    select_account || return
+
+    echo -e "${BOLD}${CYAN}Fetching repositories...${NC}"
+    echo
+
+    local response
+    response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/user/repos?per_page=100&sort=updated")
+
+    if echo "$response" | grep -qE '^\{[[:space:]]*"message"'; then
+        log error "Failed to fetch repositories"
+        return
+    fi
+
+    echo -e "${BOLD}Repositories for $GITHUB_USERNAME:${NC}"
+    echo
+
+    local total_size=0 count=0
+
+    if command -v jq > /dev/null 2>&1; then
+        # jq path: accurate sizes from API (size is in KB from GitHub)
+        while IFS=$'\t' read -r name private size_kb updated; do
+            count=$((count + 1))
+            local size_bytes=$(( size_kb * 1024 ))
+            total_size=$((total_size + size_bytes))
+            local vis_icon
+            [[ "$private" == "true" ]] && vis_icon="${RED}🔒${NC}" || vis_icon="${GREEN}🌐${NC}"
+            printf "  ${CYAN}%-35s${NC} ${DIM}%-8s${NC} %b\n" \
+                "📂 $name" \
+                "$(human_size "$size_bytes")" \
+                "$vis_icon"
+        done < <(echo "$response" | jq -r '.[] | [.name, (.private | tostring), (.size // 0 | tostring), .updated_at] | @tsv')
+    else
+        # Fallback: parse with grep/sed
+        local names sizes privates
+        names=$(echo "$response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//')
+        while IFS= read -r name; do
+            [[ -z "$name" ]] && continue
+            count=$((count + 1))
+            printf "  ${CYAN}%-35s${NC}\n" "📂 $name"
+        done <<< "$names"
+    fi
+
+    echo
+    echo -e "${DIM}Total: $count repos — approx. disk usage: $(human_size "$total_size")${NC}"
+    echo
+}
+
+interactive_delete() {
+    select_account || return
+
+    read -rp "Repository (user/repo or just repo name): " repo
+    [[ -z "$repo" ]] && { log error "Repository required"; return; }
+
+    read -rp "File path to delete: " file_path
+    [[ -z "$file_path" ]] && { log error "File path required"; return; }
+
+    read -rp "Commit message (optional): " commit_msg
+    [[ -z "$commit_msg" ]] && commit_msg="Delete $file_path"
+
+    REPO="$repo" DELETE_FILE="$file_path" COMMIT_MSG="$commit_msg"
+    do_delete
+}
+
+toggle_repo_visibility() {
+    select_account || return
+
+    read -rp "Repository (user/repo or just repo name): " repo
+    [[ -z "$repo" ]] && { log error "Repository required"; return; }
+
+    if [[ -z "${GITHUB_USERNAME:-}" ]]; then
+        GITHUB_USERNAME=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+    fi
+    [[ "$repo" != */* ]] && repo="$GITHUB_USERNAME/$repo"
+
+    local repo_info
+    repo_info=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/repos/$repo")
+
+    # FIX: Use jq or grep-based check that handles both "private":true and "private": true
+    local current_priv
+    if command -v jq > /dev/null 2>&1; then
+        current_priv=$(echo "$repo_info" | jq -r '.private')
+    else
+        current_priv=$(echo "$repo_info" | grep -o '"private":[^,}]*' | tr -d ' ' | cut -d: -f2)
+    fi
+
+    local new_priv new_label
+    if [[ "$current_priv" == "true" ]]; then
+        echo "Current: PRIVATE"
+        read -rp "Make public? (y/N): " confirm
+        [[ "$confirm" =~ ^[Yy]$ ]] || return
+        new_priv="false"
+        new_label="PUBLIC"
+    else
+        echo "Current: PUBLIC"
+        read -rp "Make private? (y/N): " confirm
+        [[ "$confirm" =~ ^[Yy]$ ]] || return
+        new_priv="true"
+        new_label="PRIVATE"
+    fi
+
+    local tmpfile resp
+    tmpfile=$(mktemp)
+    printf '{"private":%s}' "$new_priv" > "$tmpfile"
+
+    resp=$(curl -s -X PATCH \
+        -H "Authorization: Bearer $GITHUB_TOKEN" \
+        -H "Accept: application/vnd.github+json" \
+        --data-binary "@$tmpfile" \
+        "https://api.github.com/repos/$repo")
+    rm -f "$tmpfile"
+
+    # FIX: check response field robustly
+    local result_priv
+    if command -v jq > /dev/null 2>&1; then
+        result_priv=$(echo "$resp" | jq -r '.private')
+    else
+        result_priv=$(echo "$resp" | grep -o '"private":[^,}]*' | tr -d ' ' | cut -d: -f2)
+    fi
+
+    if [[ "$result_priv" == "$new_priv" ]]; then
+        log success "Repository is now $new_label"
+    else
+        log error "Failed to change visibility"
+    fi
+}
+
+interactive_rename_file() {
+    select_account || return
+
+    read -rp "Repository (user/repo or just repo name): " repo
+    [[ -z "$repo" ]] && { log error "Repository required"; return; }
+    read -rp "Current file path: " old_path
+    [[ -z "$old_path" ]] && { log error "Current path required"; return; }
+    read -rp "New file path: " new_path
+    [[ -z "$new_path" ]] && { log error "New path required"; return; }
+
+    if [[ -z "${GITHUB_USERNAME:-}" ]]; then
+        GITHUB_USERNAME=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+    fi
+    [[ "$repo" != */* ]] && repo="$GITHUB_USERNAME/$repo"
+
+    log info "Getting file info..."
+
+    local sha_response
+    sha_response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/repos/$repo/contents/$old_path")
+    local sha
+    sha=$(jq_safe "$sha_response" ".sha")
+
+    if [[ -z "$sha" || "$sha" == "null" ]]; then
+        log error "File not found: $old_path"
+        return
+    fi
+
+    # FIX: GitHub API returns base64 with \n chars embedded as literal \n in JSON.
+    # Use jq to decode properly, or download via download_url for binary safety.
+    log info "Downloading file content..."
+
+    local content
+    if command -v jq > /dev/null 2>&1; then
+        content=$(echo "$sha_response" | jq -r '.content' | tr -d '\n')
+    else
+        # Fallback: strip the JSON string wrapper and literal \n sequences
+        content=$(echo "$sha_response" | grep -o '"content":"[^"]*"' | cut -d'"' -f4 | sed 's/\\n//g')
+    fi
+
+    if [[ -z "$content" || "$content" == "null" ]]; then
+        log error "Could not get file content"
+        return
+    fi
+
+    log info "Uploading to new location: $new_path"
+
+    local tmpfile
+    tmpfile=$(mktemp)
+    printf '{"message":"Move %s to %s","content":"%s"}' "$old_path" "$new_path" "$content" > "$tmpfile"
+
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+        -H "Authorization: Bearer $GITHUB_TOKEN" \
+        -H "Accept: application/vnd.github+json" \
+        -H "Content-Type: application/json" \
+        --data-binary "@$tmpfile" \
+        "https://api.github.com/repos/$repo/contents/$new_path")
+    rm -f "$tmpfile"
+
+    if [[ "$http_code" != "201" && "$http_code" != "200" ]]; then
+        log error "Failed to upload to new location (HTTP $http_code)"
+        return
+    fi
+
+    log info "Deleting old file: $old_path"
+
+    local del_tmpfile
+    del_tmpfile=$(mktemp)
+    printf '{"message":"Delete original %s","sha":"%s"}' "$old_path" "$sha" > "$del_tmpfile"
+
+    local del_code
+    del_code=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+        -H "Authorization: Bearer $GITHUB_TOKEN" \
+        -H "Accept: application/vnd.github+json" \
+        --data-binary "@$del_tmpfile" \
+        "https://api.github.com/repos/$repo/contents/$old_path")
+    rm -f "$del_tmpfile"
+
+    if [[ "$del_code" == "200" || "$del_code" == "204" ]]; then
+        log success "Moved: $old_path → $new_path"
+    else
+        log warn "Uploaded to new location, but failed to delete original (HTTP $del_code)"
+    fi
+}
+
+interactive_move_cross_repo() {
+    select_account || return
+
+    local from_token="$GITHUB_TOKEN"
+    local from_user="$GITHUB_USERNAME"
+
+    read -rp "From repository: " from_repo
+    [[ -z "$from_repo" ]] && { log error "From repository required"; return; }
+    read -rp "File path in source repo: " file_path
+    [[ -z "$file_path" ]] && { log error "File path required"; return; }
+
+    local to_token="$GITHUB_TOKEN"
+    local to_user="$GITHUB_USERNAME"
+    read -rp "Use different account for destination? (y/N): " diff_account
+    if [[ "$diff_account" =~ ^[Yy]$ ]]; then
+        select_account || return
+        to_token="$GITHUB_TOKEN"
+        to_user="$GITHUB_USERNAME"
+    fi
+
+    read -rp "To repository: " to_repo
+    [[ -z "$to_repo" ]] && { log error "To repository required"; return; }
+
+    [[ "$from_repo" != */* ]] && from_repo="$from_user/$from_repo"
+    [[ "$to_repo" != */* ]] && to_repo="$to_user/$to_repo"
+
+    log info "Downloading from $from_repo..."
+
+    local sha_response
+    sha_response=$(curl -s -H "Authorization: Bearer $from_token" \
+        "https://api.github.com/repos/$from_repo/contents/$file_path")
+
+    local sha
+    sha=$(jq_safe "$sha_response" ".sha")
+    if [[ -z "$sha" || "$sha" == "null" ]]; then
+        log error "File not found: $file_path"
+        return
+    fi
+
+    # FIX: Properly decode base64 content (jq strips embedded \n, grep fallback strips literal \n)
+    local content
+    if command -v jq > /dev/null 2>&1; then
+        content=$(echo "$sha_response" | jq -r '.content' | tr -d '\n')
+    else
+        content=$(echo "$sha_response" | grep -o '"content":"[^"]*"' | cut -d'"' -f4 | sed 's/\\n//g')
+    fi
+
+    if [[ -z "$content" || "$content" == "null" ]]; then
+        log error "Could not get file content"
+        return
+    fi
+
+    local new_path="$file_path"
+    read -rp "New file path (or Enter for same): " new_path_input
+    [[ -n "$new_path_input" ]] && new_path="$new_path_input"
+
+    log info "Uploading to $to_repo..."
+
+    local tmpfile
+    tmpfile=$(mktemp)
+    printf '{"message":"Move %s","content":"%s"}' "$file_path" "$content" > "$tmpfile"
+
+    local http_code
+    http_code=$(curl -s -o /dev/null -w "%{http_code}" -X PUT \
+        -H "Authorization: Bearer $to_token" \
+        -H "Accept: application/vnd.github+json" \
+        -H "Content-Type: application/json" \
+        --data-binary "@$tmpfile" \
+        "https://api.github.com/repos/$to_repo/contents/$new_path")
+    rm -f "$tmpfile"
+
+    if [[ "$http_code" != "201" && "$http_code" != "200" ]]; then
+        log error "Failed to upload (HTTP $http_code)"
+        return
+    fi
+
+    read -rp "Delete from source repo? (y/N): " delete_orig
+    if [[ "$delete_orig" =~ ^[Yy]$ ]]; then
+        local del_tmpfile del_code
+        del_tmpfile=$(mktemp)
+        printf '{"message":"Delete moved file","sha":"%s"}' "$sha" > "$del_tmpfile"
+        del_code=$(curl -s -o /dev/null -w "%{http_code}" -X DELETE \
+            -H "Authorization: Bearer $from_token" \
+            -H "Accept: application/vnd.github+json" \
+            --data-binary "@$del_tmpfile" \
+            "https://api.github.com/repos/$from_repo/contents/$file_path")
+        rm -f "$del_tmpfile"
+        if [[ "$del_code" == "200" || "$del_code" == "204" ]]; then
+            log success "Moved: $from_repo → $to_repo"
+        else
+            log warn "Uploaded but failed to delete original (HTTP $del_code)"
+        fi
+    else
+        log success "Copied to: $to_repo/$new_path"
+    fi
+}
+
+secret_scan() {
+    select_account || return
+
+    read -rp "Repository to scan: " repo
+    [[ -z "$repo" ]] && { log error "Repository required"; return; }
+
+    if [[ -z "${GITHUB_USERNAME:-}" ]]; then
+        GITHUB_USERNAME=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+    fi
+    [[ "$repo" != */* ]] && repo="$GITHUB_USERNAME/$repo"
+
+    echo -e "${YELLOW}Scanning file names in $repo for suspicious patterns...${NC}"
+    echo -e "${DIM}(Note: this scans file names and metadata only — content scanning requires git clone)${NC}"
+    echo
+
+    # FIX: Be honest that this scans names/metadata, not file contents
+    local patterns=("ghp_" "github_pat_" "AKIA" "sk-" "xox" ".env" "secret" "credential" "password" "token")
+
+    local found=0
+    local files_response
+    files_response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/repos/$repo/contents")
+
+    local flagged=()
+    for pattern in "${patterns[@]}"; do
+        while IFS= read -r match; do
+            [[ -n "$match" ]] && flagged+=("$match (matches: $pattern)")
+        done < <(echo "$files_response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//' | grep -i "$pattern" || true)
+    done
+
+    if [[ ${#flagged[@]} -eq 0 ]]; then
+        echo -e "${GREEN}✓ No suspicious file names found in root${NC}"
+    else
+        found=1
+        echo -e "${RED}[!] Suspicious file names found:${NC}"
+        for f in "${flagged[@]}"; do
+            echo -e "    ${RED}•${NC} $f"
+        done
+        echo
+        echo -e "${YELLOW}[!] Review these files manually!${NC}"
+    fi
+}
+
+generate_share_link() {
+    select_account || return
+
+    read -rp "Repository: " repo
+    [[ -z "$repo" ]] && { log error "Repository required"; return; }
+    read -rp "File path: " file_path
+    [[ -z "$file_path" ]] && { log error "File path required"; return; }
+
+    if [[ -z "${GITHUB_USERNAME:-}" ]]; then
+        GITHUB_USERNAME=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+    fi
+    [[ "$repo" != */* ]] && repo="$GITHUB_USERNAME/$repo"
+
+    # FIX: Detect the actual default branch instead of hardcoding /main/
+    local default_branch
+    local repo_info
+    repo_info=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/repos/$repo")
+    if command -v jq > /dev/null 2>&1; then
+        default_branch=$(echo "$repo_info" | jq -r '.default_branch // "main"')
+    else
+        default_branch=$(echo "$repo_info" | grep -o '"default_branch":"[^"]*"' | cut -d'"' -f4)
+        [[ -z "$default_branch" ]] && default_branch="main"
+    fi
+
+    local url="https://raw.githubusercontent.com/$repo/$default_branch/$file_path"
+    echo
+    echo -e "${GREEN}Share link (raw):${NC}"
+    echo -e "${BOLD}$url${NC}"
+    echo
+    echo -e "${GREEN}GitHub view link:${NC}"
+    echo -e "${BOLD}https://github.com/$repo/blob/$default_branch/$file_path${NC}"
+    echo
+
+    read -rp "Copy raw link to clipboard? (y/N): " copy
+    if [[ "$copy" =~ ^[Yy]$ ]]; then
+        printf '%s' "$url" | xclip -selection clipboard 2>/dev/null \
+            || printf '%s' "$url" | clip 2>/dev/null \
+            || { log warn "Clipboard not available. URL above."; return; }
+        log success "Copied!"
+    fi
+}
+
+interactive_clone() {
+    # FIX: Check for git dependency before attempting clone
+    if ! command -v git > /dev/null 2>&1; then
+        log error "git is not installed. Please install git to use this feature."
+        return
+    fi
+
+    select_account || return
+
+    echo -e "${BOLD}Fetching repositories...${NC}"
+    local response
+    response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" "https://api.github.com/user/repos?per_page=100")
+
+    if echo "$response" | grep -qE '^\{[[:space:]]*"message"'; then
+        log error "Failed to fetch repositories"
+        return
+    fi
+
+    local repo_names=()
+    while IFS= read -r line; do
+        [[ -n "$line" ]] && repo_names+=("$line")
+    done < <(echo "$response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//')
+
+    if [[ ${#repo_names[@]} -eq 0 ]]; then
+        log error "No repositories found"
+        return
+    fi
+
+    echo -e "${BOLD}Select repository:${NC}"
+    echo
+    for i in "${!repo_names[@]}"; do
+        echo -e "  ${CYAN}$((i + 1)))${NC} ${repo_names[$i]}"
+    done
+    echo
+
+    read -rp "Enter your choice [1-${#repo_names[@]}]: " choice
+
+    if [[ -z "$choice" ]] || ! [[ "$choice" =~ ^[0-9]+$ ]] \
+        || [[ "$choice" -lt 1 ]] || [[ "$choice" -gt ${#repo_names[@]} ]]; then
+        log error "Invalid selection"
+        return
+    fi
+
+    local selected_repo="${repo_names[$((choice - 1))]}"
+    echo -e "${GREEN}Selected: $selected_repo${NC}"
+    echo
+    echo -e "  ${CYAN}1)${NC} Clone entire repository"
+    echo -e "  ${CYAN}2)${NC} Download specific file"
+    echo
+
+    read -rp "Enter your choice [1-2]: " clone_choice
+
+    if [[ "$clone_choice" == "1" ]]; then
+        local clone_url="https://github.com/$GITHUB_USERNAME/$selected_repo.git"
+        log info "Cloning $clone_url ..."
+        if git clone "$clone_url"; then
+            log success "Repository cloned to: $selected_repo"
+        else
+            log error "Failed to clone repository"
+        fi
+    elif [[ "$clone_choice" == "2" ]]; then
+        local files_response file_names=()
+        files_response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_USERNAME/$selected_repo/contents")
+
+        if echo "$files_response" | grep -qE '^\{[[:space:]]*"message"'; then
+            log error "Failed to fetch files"
+            return
+        fi
+
+        while IFS= read -r file; do
+            [[ -n "$file" ]] && file_names+=("$file")
+        done < <(echo "$files_response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//')
+
+        if [[ ${#file_names[@]} -eq 0 ]]; then
+            log error "No files found in repository"
+            return
+        fi
+
+        echo -e "${BOLD}Select file to download:${NC}"
+        echo
+        for i in "${!file_names[@]}"; do
+            local emoji
+            emoji=$(get_file_emoji "${file_names[$i]}")
+            echo -e "  ${CYAN}$((i + 1)))${NC} $emoji ${file_names[$i]}"
+        done
+        echo
+
+        read -rp "Enter your choice [1-${#file_names[@]}]: " file_choice
+
+        if [[ -z "$file_choice" ]] || ! [[ "$file_choice" =~ ^[0-9]+$ ]] \
+            || [[ "$file_choice" -lt 1 ]] || [[ "$file_choice" -gt ${#file_names[@]} ]]; then
+            log error "Invalid selection"
+            return
+        fi
+
+        local selected_file="${file_names[$((file_choice - 1))]}"
+
+        # FIX: Detect default branch instead of hardcoding /main/
+        local repo_meta default_branch
+        repo_meta=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+            "https://api.github.com/repos/$GITHUB_USERNAME/$selected_repo")
+        if command -v jq > /dev/null 2>&1; then
+            default_branch=$(echo "$repo_meta" | jq -r '.default_branch // "main"')
+        else
+            default_branch=$(echo "$repo_meta" | grep -o '"default_branch":"[^"]*"' | cut -d'"' -f4)
+            [[ -z "$default_branch" ]] && default_branch="main"
+        fi
+
+        log info "Downloading $selected_file ..."
+        local download_url="https://raw.githubusercontent.com/$GITHUB_USERNAME/$selected_repo/$default_branch/$selected_file"
+        if curl -sL "$download_url" -o "$selected_file"; then
+            log success "File downloaded: $selected_file"
+        else
+            log error "Failed to download file"
+        fi
+    else
+        log error "Invalid selection"
+    fi
+}
+
+interactive_upload_dir() {
+    select_account || return
+
+    read -rp "Repository (user/repo or just repo name): " repo
+    [[ -z "$repo" ]] && { log error "Repository required"; return; }
+    read -rp "Directory path to upload: " dir_path
+    [[ -z "$dir_path" ]] && { log error "Directory path required"; return; }
+    [[ ! -d "$dir_path" ]] && { log error "Directory not found: $dir_path"; return; }
+
+    if [[ -z "${GITHUB_USERNAME:-}" ]]; then
+        GITHUB_USERNAME=$(grep '^GITHUB_USERNAME=' "$DEFAULT_CONFIG" 2>/dev/null | cut -d= -f2- | tr -d '"')
+    fi
+    [[ "$repo" != */* ]] && repo="$GITHUB_USERNAME/$repo"
+
+    read -rp "Commit message (optional): " commit_msg
+    [[ -z "$commit_msg" ]] && commit_msg="Upload $(basename "$dir_path")"
+
+    local code
+    code=$(check_repo "$repo")
+    if [[ "$code" == "404" ]]; then
+        read -rp "Repository not found. Create it? (y/N): " create_it
+        if [[ "$create_it" =~ ^[Yy]$ ]]; then
+            create_repo "${repo%%/*}" "${repo##*/}" "false" "" || return
+        else
+            return
+        fi
+    elif [[ "$code" != "200" ]]; then
+        log error "Cannot access repository: $repo (HTTP $code)"
+        return
+    fi
+
+    local base_dir
+    base_dir=$(basename "$dir_path")
+    local success=0 failed=0 skipped=0
+
+    local ignore_patterns=(".git" "node_modules" ".DS_Store" "Thumbs.db" "*.log"
+        ".env" ".env.local" "__pycache__" "*.pyc" ".gradle" "build/" "*.apk" "*.aab")
+
+    if [[ -f "$dir_path/.github-upload-ignore" ]]; then
+        while IFS= read -r pattern; do
+            [[ -n "$pattern" && ! "$pattern" =~ ^# ]] && ignore_patterns+=("$pattern")
+        done < "$dir_path/.github-upload-ignore"
+    fi
+
+    log info "Fetching existing files in remote..."
+
+    # FIX: Use a simple key=value store via temp files instead of declare -A
+    # (avoids bash version issues with associative arrays)
+    local cache_dir
+    cache_dir=$(mktemp -d)
+
+    local existing_response
+    existing_response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/repos/$repo/contents/$base_dir")
+
+    if echo "$existing_response" | grep -q '"name"'; then
+        if command -v jq > /dev/null 2>&1; then
+            while IFS=$'\t' read -r name size; do
+                [[ -n "$name" ]] && printf '%s' "$size" > "$cache_dir/$name"
+            done < <(echo "$existing_response" | jq -r '.[] | [.name, (.size // 0 | tostring)] | @tsv' 2>/dev/null)
+        else
+            while IFS= read -r line; do
+                local n s
+                n=$(echo "$line" | grep -o '"name":"[^"]*"' | cut -d'"' -f4)
+                s=$(echo "$line" | grep -o '"size":[0-9]*' | cut -d: -f2)
+                [[ -n "$n" ]] && printf '%s' "${s:-0}" > "$cache_dir/$n"
+            done < <(echo "$existing_response" | grep -o '{[^}]*}')
+        fi
+    fi
+
+    # First pass: count files to upload (for accurate progress)
+    local upload_queue=()
+    while IFS= read -r -d '' file; do
+        local rel_path="${file#$dir_path/}"
+        local filename
+        filename=$(basename "$file")
+        local skip=false
+
+        for pattern in "${ignore_patterns[@]}"; do
+            if [[ "$rel_path" == *"$pattern"* || "$filename" == $pattern ]]; then
+                skip=true; break
+            fi
+        done
+        [[ "$skip" == "true" ]] && { skipped=$((skipped + 1)); continue; }
+
+        local local_size
+        local_size=$(stat -c%s "$file" 2>/dev/null) || local_size=$(stat -f%z "$file" 2>/dev/null) || local_size=0
+
+        # FIX: Use temp file cache instead of associative array for size comparison
+        local remote_size=""
+        [[ -f "$cache_dir/$rel_path" ]] && remote_size=$(cat "$cache_dir/$rel_path")
+
+        if [[ -n "$remote_size" && "$local_size" == "$remote_size" ]]; then
+            skipped=$((skipped + 1))
+        else
+            upload_queue+=("$file")
+        fi
+    done < <(find "$dir_path" -type f -print0)
+
+    local total_to_upload=${#upload_queue[@]}
+    local current=0
+
+    if [[ $total_to_upload -eq 0 ]]; then
+        log info "All files already up to date!"
+        rm -rf "$cache_dir"
+        return
+    fi
+
+    log info "Uploading $total_to_upload file(s)..."
+
+    for file in "${upload_queue[@]}"; do
+        local rel_path="${file#$dir_path/}"
+        local repo_path="$base_dir/$rel_path"
+        current=$((current + 1))
+
+        # FIX: progress uses correct total (total_to_upload) from the start
+        show_progress "$current" "$total_to_upload" "$file"
+
+        if upload_file "$repo" "$file" "$repo_path" "$commit_msg"; then
+            success=$((success + 1))
+        else
+            failed=$((failed + 1))
+        fi
+    done
+
+    rm -rf "$cache_dir"
+    echo
+
+    echo
+    [[ $success -gt 0 ]] && log success "Uploaded $success file(s)"
+    [[ $skipped -gt 0 ]] && log info "Skipped (unchanged or ignored): $skipped file(s)"
+    [[ $failed -gt 0 ]] && log error "Failed: $failed file(s)"
+    [[ $success -gt 0 ]] && echo -e "${GREEN}View at: https://github.com/$repo${NC}"
+    [[ $failed -gt 0 ]] && exit 1
+}
+
+show_help() {
+    cat << 'HELPEOF'
+╔══════════════════════════════════════════════════════════════════╗
+║        GitHub Direct Upload Tool v2.26 (Fixed)                ║
+║        Upload files to GitHub WITHOUT cloning!               ║
+╚══════════════════════════════════════════════════════════════════╝
+
+USAGE:
+    github-upload [options] -r REPO FILE...
+
+OPTIONS:
+    -r, --repo REPO           Repository (user/repo or just repo)
+    -c, --create              Create repository if it doesn't exist
+    -p, --private             Make new repository private
+    -d, --description TEXT    Repository description (with -c)
+    -m, --message TEXT        Commit message
+    -f, --file-path PATH      Upload single file to this path in repo
+    -A, --add-account [NAME]  Add a GitHub account
+    -a, --account NAME        Use specific account
+    --list-accounts           Show saved accounts
+    --delete PATH             Delete a file from repository
+    --list [PATH]             List files in repository (with sizes)
+    --list-repos              List your repositories (with sizes)
+    --list-branches           List branches in repository
+    -b, --branch NAME         Create new branch
+    --target-branch NAME      Upload to specific branch
+    -q, --quiet               Quiet mode
+    -P, --progress            Progress bar
+    -n, --dry-run             Show what would be uploaded
+    -h, --help                Show this help
+    --clear                   Clear saved credentials
+
+HELPEOF
+}
+
+# ========================
+# PARSE ARGUMENTS
+# ========================
+
+REPO="" CREATE_REPO="false" IS_PRIVATE="false" REPO_DESCRIPTION=""
+COMMIT_MSG="" FILES=() SPECIFIED_ACCOUNT="" DELETE_FILE=""
+DO_LIST="false" LIST_REPOS="false" LIST_BRANCHES="false"
+CREATE_BRANCH="false" LIST_PATH="" FILE_PATH="" BRANCH_NAME=""
+SOURCE_BRANCH="main" TARGET_BRANCH="" DRY_RUN="false" QUIET="false"
+PROGRESS="false" SHOW_ACCOUNTS="false" ADD_ACCOUNT="" CLEAR_CREDS="false"
+OVERWRITE="false" INTERACTIVE="false"
+
+ORIGINAL_ARGS=$#
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        -r|--repo)           REPO="$2"; shift 2 ;;
+        -c|--create)         CREATE_REPO="true"; shift ;;
+        -p|--private)        IS_PRIVATE="true"; shift ;;
+        -d|--description)    REPO_DESCRIPTION="$2"; shift 2 ;;
+        -m|--message)        COMMIT_MSG="$2"; shift 2 ;;
+        -f|--file-path)      FILE_PATH="$2"; shift 2 ;;
+        -a|--account)        SPECIFIED_ACCOUNT="$2"; shift 2 ;;
+        -A|--add-account)
+            if [[ $# -gt 1 && "${2:-}" != -* && -n "${2:-}" ]]; then
+                ADD_ACCOUNT="$2"; shift 2
+            else
+                ADD_ACCOUNT=""; shift
+            fi ;;
+        --list-accounts)     SHOW_ACCOUNTS="true"; shift ;;
+        --delete)            DELETE_FILE="$2"; shift 2 ;;
+        --list)
+            DO_LIST="true"
+            if [[ $# -gt 1 && "${2:-}" != -* ]]; then LIST_PATH="$2"; shift; fi
+            shift ;;
+        --list-repos)        LIST_REPOS="true"; shift ;;
+        --list-branches)     LIST_BRANCHES="true"; shift ;;
+        -b|--branch)         CREATE_BRANCH="true"; BRANCH_NAME="$2"; shift 2 ;;
+        --source-branch)     SOURCE_BRANCH="$2"; shift 2 ;;
+        --target-branch)     TARGET_BRANCH="$2"; shift 2 ;;
+        -P|--progress)       PROGRESS="true"; shift ;;
+        -q|--quiet)          QUIET="true"; shift ;;
+        -n|--dry-run)        DRY_RUN="true"; shift ;;
+        -h|--help)           show_help; exit 0 ;;
+        --clear)             CLEAR_CREDS="true"; shift ;;
+        --overwrite)         OVERWRITE="true"; shift ;;
+        -i|--interactive)    INTERACTIVE="true"; shift ;;
+        -*)                  log error "Unknown option: $1"; exit 1 ;;
+        *)                   FILES+=("$1"); shift ;;
+    esac
+done
+
+# ========================
+# EXECUTE
+# ========================
+
+for cmd in curl stat; do
+    command -v "$cmd" > /dev/null || { log error "Required command '$cmd' not found"; exit 1; }
+done
+
+if [[ "$INTERACTIVE" == "true" ]]; then show_interactive_menu; exit 0; fi
+if [[ $ORIGINAL_ARGS -eq 0 ]]; then show_interactive_menu; exit 0; fi
+if [[ "$CLEAR_CREDS" == "true" ]]; then rm -rf "$CONFIG_DIR"; log success "Credentials cleared"; exit 0; fi
+if [[ "$SHOW_ACCOUNTS" == "true" ]]; then list_accounts; exit 0; fi
+if [[ -n "$ADD_ACCOUNT" || ( "$ADD_ACCOUNT" == "" && "$ORIGINAL_ARGS" -eq 1 ) ]]; then
+    add_account "$ADD_ACCOUNT"; exit 0
+fi
+if [[ -n "$DELETE_FILE" ]]; then do_delete; exit $?; fi
+if [[ "$DO_LIST" == "true" ]]; then do_list; exit $?; fi
+
+handle_list_repos() {
+    . "$DEFAULT_CONFIG" 2>/dev/null || { log error "No account configured"; exit 1; }
+    local response
+    response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/user/repos?per_page=100&sort=updated")
+    echo -e "${BOLD}Your repositories:${NC}"
+    echo "$response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//'
+    exit 0
+}
+if [[ "$LIST_REPOS" == "true" ]]; then handle_list_repos; fi
+
+handle_list_branches() {
+    [[ -z "$REPO" ]] && { log error "Repository required"; exit 1; }
+    . "$DEFAULT_CONFIG" 2>/dev/null || { log error "No account configured"; exit 1; }
+    [[ "$REPO" != */* ]] && REPO="$GITHUB_USERNAME/$REPO"
+    local response
+    response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/repos/$REPO/branches")
+    echo -e "${BOLD}Branches in $REPO:${NC}"
+    echo "$response" | grep -o '"name": "[^"]*"' | sed 's/"name": "//;s/"$//' | head -10
+    exit 0
+}
+if [[ "$LIST_BRANCHES" == "true" ]]; then handle_list_branches; fi
+
+handle_create_branch() {
+    [[ -z "$REPO" ]] && { log error "Repository required"; exit 1; }
+    [[ -z "$BRANCH_NAME" ]] && { log error "Branch name required"; exit 1; }
+    . "$DEFAULT_CONFIG" 2>/dev/null || { log error "No account configured"; exit 1; }
+    [[ "$REPO" != */* ]] && REPO="$GITHUB_USERNAME/$REPO"
+
+    local ref_response sha
+    ref_response=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
+        "https://api.github.com/repos/$REPO/git/refs/heads/$SOURCE_BRANCH")
+    sha=$(jq_safe "$ref_response" ".object.sha")
+    [[ -z "$sha" || "$sha" == "null" ]] && { log error "Branch '$SOURCE_BRANCH' not found"; exit 1; }
+
+    local json tmpfile resp_code
+    json=$(printf '{"ref":"refs/heads/%s","sha":"%s"}' "$BRANCH_NAME" "$sha")
+    tmpfile=$(mktemp)
+    printf '%s' "$json" > "$tmpfile"
+    resp_code=$(curl -s -o /dev/null -w "%{http_code}" -X POST \
+        -H "Authorization: Bearer $GITHUB_TOKEN" \
+        -H "Accept: application/vnd.github+json" \
+        --data-binary "@$tmpfile" \
+        "https://api.github.com/repos/$REPO/git/refs")
+    rm -f "$tmpfile"
+
+    [[ "$resp_code" == "201" ]] \
+        && log success "Branch created: $BRANCH_NAME" \
+        || log error "Failed to create branch (HTTP $resp_code)"
+    exit 0
+}
+if [[ "$CREATE_BRANCH" == "true" ]]; then handle_create_branch; fi
+
+do_upload
