@@ -624,11 +624,11 @@ do_upload() {
     for file in "${FILES[@]}"; do
         current=$((current + 1))
         if [[ -f "$file" ]]; then
-            if [[ "$QUIET" != "true" && "$PROGRESS" != "true" ]]; then
-                echo -e "${CYAN}${ARROW}${NC} Upload: ${PURPLE}$(basename "$file")${NC}"
+            if [[ "$PROGRESS" == "true" ]] || [[ $total -gt 1 ]]; then
+                show_progress "$current" "$total" "$file"
+            else
+                [[ "$QUIET" != "true" ]] && echo -e "${CYAN}${ARROW}${NC} Upload: ${PURPLE}$(basename "$file")${NC}"
             fi
-
-            [[ "$PROGRESS" == "true" ]] && show_progress "$current" "$total" "$file"
 
             if [[ "$DRY_RUN" == "true" ]]; then
                 log info "Would upload: $file"
@@ -1432,10 +1432,10 @@ interactive_upload_dir() {
         upload_count=$((upload_count + 1))
         current=$((current + 1))
 
-        [[ "$PROGRESS" == "true" ]] && show_progress "$current" "$upload_count" "$file"
-
-        if [[ "$QUIET" != "true" && "$PROGRESS" != "true" ]]; then
-            echo -e "${CYAN}${ARROW}${NC} Upload: ${PURPLE}$repo_path${NC}"
+        if [[ "$PROGRESS" == "true" ]] || [[ $upload_count -gt 1 ]]; then
+            show_progress "$current" "$upload_count" "$file"
+        else
+            [[ "$QUIET" != "true" ]] && echo -e "${CYAN}${ARROW}${NC} Upload: ${PURPLE}$repo_path${NC}"
         fi
 
         if upload_file "$repo" "$file" "$repo_path" "$commit_msg"; then
@@ -1449,7 +1449,10 @@ interactive_upload_dir() {
         log info "All files already up to date!"
     fi
 
-    [[ "$PROGRESS" == "true" ]] && echo
+    if [[ "$PROGRESS" == "true" ]] || [[ $upload_count -gt 1 ]]; then
+        echo
+    fi
+
     echo
     [[ $success -gt 0 ]] && log success "Uploaded $success file(s)"
     [[ $skipped -gt 0 ]] && log warn "Skipped: $skipped file(s)"
@@ -1462,7 +1465,7 @@ interactive_upload_dir() {
 show_help() {
     cat << 'HELPEOF'
 ╔══════════════════════════════════════════════════════════════════╗
-║        GitHub Direct Upload Tool v2.11                 ║
+║        GitHub Direct Upload Tool v2.12                 ║
 ║        Upload files to GitHub WITHOUT cloning!               ║
 ╚══════════════════════════════════════════════════════════════════╝
 
