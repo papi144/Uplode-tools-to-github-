@@ -1,4 +1,4 @@
-# GitHub Direct Upload Tool
+# GIT UPLOAD
 
 > Upload files to GitHub **directly via API** - No git clone needed!
 
@@ -11,7 +11,7 @@ A powerful bash script that uploads files to GitHub repositories using the GitHu
 - 📁 **Upload Any File** - APKs, PDFs, images, archives, anything!
 - 🔄 **Update Files** - Automatically detects and updates existing files
 - 🗑️ **Delete Files** - Remove files from repositories
-- 📋 **List Files** - View files in any repository
+- 📋 **List Files** - View files in any repository (with sizes!)
 - 🌳 **Graph/Tree View** - Visual representation of repos and files
 - 🔢 **Account Selection** - Numbered menu for easy account switching
 - 📄 **File Type Icons** - Different emojis for different file types
@@ -19,6 +19,11 @@ A powerful bash script that uploads files to GitHub repositories using the GitHu
 - 💾 **Multi-Account** - Support for multiple GitHub accounts
 - 🔒 **Secure** - Credentials stored with proper permissions
 - 📦 **100MB Max** - Upload files up to 100MB
+- 🌐 **Move Across Repos** - Move files between repositories
+- 🌐 **Move Across Accounts** - Move files between accounts
+- 🌿 **Branch Management** - Create, list, delete branches
+- 📁 **Directory Upload** - Upload entire folders
+- 🔗 **Share Links** - Generate raw and GitHub links
 
 ## 📦 Requirements
 
@@ -137,18 +142,25 @@ chmod 600 ~/.config/github-upload/config
 ```
 
 Menu options:
-1. Add new account
-2. List available accounts
-3. Remove account
-4. Switch default account
-5. Upload file(s)
-6. List files in repository
-7. Create new repository
-8. List my repositories
-9. List repos for specific account
-10. Delete file from repository
-11. **See graph (tree view)** ← Shows repos and files visually!
-12. Exit
+ 1. Add account
+ 2. List accounts
+ 3. Remove account
+ 4. Switch account
+ 5. Upload file(s)
+ 6. List files (with sizes)
+ 7. Create/delete repository
+ 8. List repositories (with sizes)
+ 9. Delete files
+10. Upload directory
+11. Clone repo or file
+12. Make private/public
+13. Branch management
+14. Rename/move file
+15. Move file across repos/accounts
+16. TUI tree view
+17. Scan for secrets
+18. Generate share link
+19. Exit
 
 ### Basic Commands
 
@@ -244,6 +256,7 @@ Different files show different icons:
 | `-n, --dry-run` | Show what would be uploaded |
 | `-h, --help` | Show help |
 | `--clear` | Clear saved credentials |
+| `-i, --interactive` | Interactive menu mode |
 
 ## 🔍 Troubleshooting
 
